@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<settings>
+  <run_mode>fixed source</run_mode>
+  <particles>100000</particles>
+  <batches>40</batches>
+  <source particle="neutron" strength="1.0" type="independent">
+    <space type="cartesian">
+      <x parameters="-0.75 0.75" type="uniform"/>
+      <y parameters="-0.75 0.75" type="uniform"/>
+      <z type="discrete">
+        <parameters>1e-06 1.0</parameters>
+      </z>
+    </space>
+    <angle reference_uvw="0.0 0.0 1.0" type="mu-phi">
+      <mu type="discrete">
+        <parameters>1.0 1.0</parameters>
+      </mu>
+      <phi parameters="0.0 6.283185307179586" type="uniform"/>
+    </angle>
+    <energy type="discrete">
+      <parameters>1000000.0 1.0</parameters>
+    </energy>
+  </source>
+  <surf_source_write>
+    <surface_ids>70</surface_ids>
+    <max_particles>10000000</max_particles>
+  </surf_source_write>
+</settings>
