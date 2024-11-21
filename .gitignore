@@ -1,0 +1,10 @@
+track_files
+
+*.png
+*.csv
+*.h5
+*.mcpl
+*.out
+*.xz
+
+**/__pycache__
