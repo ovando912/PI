@@ -9,10 +9,256 @@ from scipy.stats import entropy
 from scipy.stats import wasserstein_distance
 from scipy.special import rel_entr
 
+import glob
+import shutil
+import openmc
+
 # %matplotlib widget
 
 
 # EN USO:
+
+
+def format_df_to_MCPL(
+    df: pd.DataFrame,
+    z: float,
+    time: float = 0,
+    wgt: float = 1,
+    delayed_group: float = 0,
+    particle: int = 2112,
+    E_0: float = 20,
+) -> pd.DataFrame:
+
+    # Vectorized calculations
+    df["theta"] = np.arccos(df["mu"])
+    df["E"] = E_0 * np.exp(-df["ln(E0/E)"])  # MeV
+    df["u_x"] = np.cos(df["phi"]) * np.sin(df["theta"])
+    df["u_y"] = np.sin(df["phi"]) * np.sin(df["theta"])
+    df["u_z"] = np.cos(df["theta"])
+
+    # Construct the result DataFrame with all columns in one step
+    df_result = pd.DataFrame(
+        {
+            "id": df.index,
+            "type": particle,
+            "E": df["E"],
+            "x": df["x"],
+            "y": df["y"],
+            "z": z,
+            "u": df["u_x"],
+            "v": df["u_y"],
+            "w": df["u_z"],
+            "t": time,
+            "wgt": wgt,
+            "px": 0,
+            "py": 0,
+            "pz": 0,
+            "userflags": delayed_group,
+        }
+    )
+
+    # Ensure integer columns are correctly typed
+    df_result["id"] = df_result["id"].astype(int)
+    df_result["type"] = df_result["type"].astype(int)
+    df_result["userflags"] = df_result["userflags"].astype(int)
+
+    return df_result
+
+
+def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
+    openmc.config["cross_sections"] = (
+        "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
+    )
+
+    # Atributos
+
+    if len(fuente) == 1:
+        source_file = fuente[0]
+    if len(fuente) == 2:
+        fuente_energia = fuente[0]
+        fuente_direccion = fuente[1]
+        # fuente_energia = 'monoenergetica'
+        # fuente_direccion = 'colimada'
+
+    vacio = geometria[0]
+    L_x = geometria[1]  # cm dx del paralelepipedo
+    L_y = geometria[2]  # cm dy del paralelepipedo
+    L_z = geometria[3]  # cm
+
+    if vacio:
+        L_x_vacio = geometria[4]  # cm dx del vacio
+        L_y_vacio = geometria[5]  # cm dy del vacio
+
+    # vacio = False
+    # L_x = 1.5  # cm dx del paralelepipedo
+    # L_y = 1.5  # cm dy del paralelepipedo
+    # L_z = 7  # cm
+    # L_x_vacio = 0.3  # cm dx del vacio
+    # L_y_vacio = 0.3  # cm dy del vacio
+
+    # Defino materiales
+
+    mat_agua = openmc.Material()
+    mat_agua.add_nuclide("H1", 2.0, "ao")
+    mat_agua.add_nuclide("O16", 1.0, "ao")
+    mat_agua.add_s_alpha_beta("c_H_in_H2O")
+    mat_agua.set_density("g/cm3", 1)
+
+    mats = openmc.Materials([mat_agua])
+    mats.export_to_xml()
+
+    # Defino geometria
+
+    # 1-6: fronteras externas (vacuum)
+    sur001 = openmc.XPlane(x0=-L_x / 2, boundary_type="vacuum")
+    sur002 = openmc.XPlane(x0=L_x / 2, boundary_type="vacuum")
+    sur003 = openmc.YPlane(y0=-L_y / 2, boundary_type="vacuum")
+    sur004 = openmc.YPlane(y0=L_y / 2, boundary_type="vacuum")
+    sur005 = openmc.ZPlane(z0=0, boundary_type="vacuum")
+    sur006 = openmc.ZPlane(z0=L_z, boundary_type="vacuum")
+
+    # 7-10: fronteras internas (transmission)
+    if vacio:
+        sur007 = openmc.XPlane(x0=-L_x_vacio / 2, boundary_type="transmission")
+        sur008 = openmc.XPlane(x0=L_x_vacio / 2, boundary_type="transmission")
+        sur009 = openmc.YPlane(y0=-L_y_vacio / 2, boundary_type="transmission")
+        sur010 = openmc.YPlane(y0=L_y_vacio / 2, boundary_type="transmission")
+
+    # 11: surface track (transmission)
+    sur011 = openmc.ZPlane(z0=z0, boundary_type="transmission", surface_id=70)
+
+    if len(fuente) == 1:
+        sur005.translate(vector=(0, 0, z0 - 1e-6), inplace=True)
+
+    univ = openmc.Universe()
+
+    region1 = +sur001 & -sur002 & +sur003 & -sur004 & +sur005 & -sur006
+    if vacio:
+        region2 = +sur007 & -sur008 & +sur009 & -sur010 & +sur005 & -sur006
+
+    if vacio:
+        if len(fuente) == 2:
+            univ.add_cell(
+                openmc.Cell(
+                    region=region1 & ~region2 & -sur011, fill=mat_agua, name="agua1"
+                )
+            )
+            univ.add_cell(
+                openmc.Cell(
+                    region=region1 & ~region2 & +sur011, fill=mat_agua, name="agua2"
+                )
+            )
+            univ.add_cell(
+                openmc.Cell(region=region2 & -sur011, fill=None, name="vacio1")
+            )
+            univ.add_cell(
+                openmc.Cell(region=region2 & +sur011, fill=None, name="vacio2")
+            )
+        else:
+            univ.add_cell(
+                openmc.Cell(region=region1 & ~region2, fill=mat_agua, name="agua")
+            )
+            univ.add_cell(openmc.Cell(region=region2, fill=None, name="vacio"))
+    else:
+        if len(fuente) == 2:
+            univ.add_cell(
+                openmc.Cell(region=region1 & -sur011, fill=mat_agua, name="agua1")
+            )
+            univ.add_cell(
+                openmc.Cell(region=region1 & +sur011, fill=mat_agua, name="agua2")
+            )
+        else:
+            univ.add_cell(openmc.Cell(region=region1, fill=mat_agua, name="agua"))
+
+    # univ.plot(
+    #     width=(1.5 * L_x, 1.5 * L_z),
+    #     basis="xz",
+    #     color_by="cell",
+    # )
+
+    # univ.plot(
+    #     width=(1.5 * L_x, 1.5 * L_y),
+    #     basis="xy",
+    #     color_by="cell",
+    # )
+
+    geom = openmc.Geometry(univ)
+    geom.export_to_xml()
+
+    # Defino fuente superficial
+    if len(fuente) == 2:
+        source = openmc.IndependentSource()
+        source.particle = "neutron"
+
+        # Espatial distribution
+        x = openmc.stats.Uniform(-L_x / 2, L_x / 2)
+        y = openmc.stats.Uniform(-L_y / 2, L_y / 2)
+        z = openmc.stats.Discrete(1e-6, 1)
+        source.space = openmc.stats.CartesianIndependent(x, y, z)
+
+        # Energy distribution at 1 MeV
+        if fuente_energia == "monoenergetica":
+            source.energy = openmc.stats.Discrete([1e6], [1])
+
+        # Angle distribution collimated beam
+        if fuente_direccion == "colimada":
+            mu = openmc.stats.Discrete([1], [1])
+            phi = openmc.stats.Uniform(0.0, 2 * np.pi)
+            source.angle = openmc.stats.PolarAzimuthal(mu, phi)
+
+    settings = openmc.Settings()
+
+    # Write the particles that cross surface_track
+    if len(fuente) == 2:
+        settings.surf_source_write = {"surface_ids": [70], "max_particles": 10000000}
+
+    settings.run_mode = "fixed source"
+    settings.batches = 100
+    settings.particles = N_particles
+    settings.source = source if len(fuente) == 2 else openmc.FileSource(source_file)
+    settings.export_to_xml()
+
+    # Defino tallies
+
+    # Initialize an empty tallies object
+    tallies = openmc.Tallies()
+
+    # Create a mesh of the parallelepiped to tally flux
+    mesh_flux = openmc.RectilinearMesh()
+    mesh_flux.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
+    mesh_flux.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
+    mesh_flux.z_grid = np.linspace(0, L_z, 751)
+
+    # Create mesh filter to tally flux
+    mesh_flux_filter = openmc.MeshFilter(mesh_flux)
+    mesh_flux_tally = openmc.Tally(name="flux")
+    mesh_flux_tally.filters = [mesh_flux_filter]
+    mesh_flux_tally.scores = ["flux"]
+    tallies.append(mesh_flux_tally)
+
+    # Print tallies
+    # print(tallies)
+
+    # Export to "tallies.xml"
+    tallies.export_to_xml()
+
+    # Corro la simulacion
+
+    for file in glob.glob("statepoint.*.h5"):
+        os.remove(file)
+
+    if os.path.exists("summary.h5"):
+        os.remove("summary.h5")
+
+    openmc.run()
+
+    statepoint_files = glob.glob("statepoint.*.h5")
+    if len(fuente) == 2:
+        for file in statepoint_files:
+            shutil.move(file, "statepoint_original.h5")
+    else:
+        for file in statepoint_files:
+            shutil.move(file, "statepoint_sintetico.h5")
 
 
 def calculate_cumul_micro_macro(
@@ -107,7 +353,6 @@ def calculate_cumul_micro_macro(
     return cumul_list, micro_list, macro_list
 
 
-
 def index_management(data: np.ndarray, indices: list) -> np.ndarray:
     """
     Get the value of a multi-dimensional array using a list of indices. Used in the sample function.
@@ -123,7 +368,6 @@ def index_management(data: np.ndarray, indices: list) -> np.ndarray:
     for i in indices:
         value = value[i]
     return value
-
 
 
 def sample(
@@ -264,7 +508,6 @@ def sample(
     return pd.DataFrame(sampled_values, columns=columns)
 
 
-
 def plot_correlated_variables(
     df: pd.DataFrame,
     columns: list,  # Por ahora todos tienen los mismos bines
@@ -321,7 +564,6 @@ def plot_correlated_variables(
 
     if plot:
         plt.show()
-
 
 
 def plot_results_barrido(
@@ -413,7 +655,6 @@ def plot_results_barrido(
     plt.close(fig)
 
 
-
 def manage_n(
     amount: int,
     max_batch_size: float = 1e7,
@@ -466,7 +707,6 @@ def manage_n(
     return n
 
 
-
 def save_information(
     type: list, N_max: list, columns_order: list, micro_bins: list, macro_bins: list
 ) -> None:
@@ -501,7 +741,6 @@ def save_information(
     df.to_csv("index_information.csv", index=True)
 
 
-
 def barrido_combinations(
     columns_order: list,
     micro_bins: list,
@@ -534,7 +773,6 @@ def barrido_combinations(
                         )
                         type_aux.append(type_)
     return columns_order_aux, micro_bins_aux, macro_bins_aux, N_max_aux, type_aux
-
 
 
 def comparacion_barrido(
@@ -659,10 +897,9 @@ def comparacion_barrido(
     plt.close(fig)
 
 
-
 def get_min_max(
     index_max: int,
-    amount_columns:int ,
+    amount_columns: int,
 ) -> None:
 
     original_path = os.getcwd()
@@ -686,7 +923,6 @@ def get_min_max(
         df_min_max.to_csv("min_max.csv", index=False)
 
         os.chdir(original_path)
-
 
 
 def calificator(min: np.ndarray, max: np.ndarray) -> np.ndarray:
@@ -720,10 +956,8 @@ def calificator(min: np.ndarray, max: np.ndarray) -> np.ndarray:
     return calification
 
 
-
 def get_max_indexes(a: np.array, n: int) -> np.array:
     return a.argsort()[-n:][::-1]
-
 
 
 def get_bin_edges(
@@ -765,7 +999,6 @@ def get_bin_edges(
     return edges_1d, edges_2d_1, edges_2d_2
 
 
-
 def get_counts(
     df: pd.DataFrame,
     columns_order: list,
@@ -777,7 +1010,9 @@ def get_counts(
 
     counts_1d = np.array(
         [
-            np.histogram(df[column], bins=edge, weights=df["wgt"] if "wgt" in df else None)[0]
+            np.histogram(
+                df[column], bins=edge, weights=df["wgt"] if "wgt" in df else None
+            )[0]
             for column, edge in zip(columns_order, edges_1d)
         ]
     )
@@ -785,7 +1020,10 @@ def get_counts(
     counts_2d = np.array(
         [
             np.histogram2d(
-                df[columns_order[i]], df[columns_order[j]], bins=[edges1, edges2], weights=df["wgt"] if "wgt" in df else None
+                df[columns_order[i]],
+                df[columns_order[j]],
+                bins=[edges1, edges2],
+                weights=df["wgt"] if "wgt" in df else None,
             )[0]
             for (i, j), edges1, edges2 in zip(
                 [
@@ -797,8 +1035,8 @@ def get_counts(
                 edges_2d_2,
             )
         ]
-    )    
-    
+    )
+
     # for (i, j), edges1, edges2 in zip(
     #     [
     #         (i, j)
@@ -809,12 +1047,12 @@ def get_counts(
     #     edges_2d_2,
     # ):
     #     histo = np.histogram2d(
-    #             df[columns_order[i]], df[columns_order[j]], bins=[edges1, edges2])[0]        
-        
+    #             df[columns_order[i]], df[columns_order[j]], bins=[edges1, edges2])[0]
+
     #     # histo = np.histogram2d(
     #     #         df[columns_order[i]], df[columns_order[j]], bins=[edges1, edges2], weights=df["wgt"] if "wgt" in df else None
     #     #     )[0]
-        
+
     #     print('x')
 
     # counts_2d = np.array(
@@ -835,7 +1073,6 @@ def get_counts(
     # )
 
     return counts_1d, counts_2d
-
 
 
 def get_time_and_counts(
@@ -875,7 +1112,6 @@ def get_time_and_counts(
     )
 
     return time_sampling, counts_1d, counts_2d
-
 
 
 def plot_correlated_variables_counts(
@@ -938,7 +1174,6 @@ def plot_correlated_variables_counts(
     plt.close(fig)
 
 
-
 def barrido(
     columns_order: list,
     micro_bins: list,
@@ -976,7 +1211,12 @@ def barrido(
 
         # normalize counts_container and take aways the zeros
         counts_1d_original, counts_2d_original = normalize_counts(
-            counts_1d_original, counts_2d_original, edges_1d, edges_2d_1, edges_2d_2, value_to_replace_0= value_to_replace_0
+            counts_1d_original,
+            counts_2d_original,
+            edges_1d,
+            edges_2d_1,
+            edges_2d_2,
+            value_to_replace_0=value_to_replace_0,
         )
 
         # Save the original histograms
@@ -999,7 +1239,12 @@ def barrido(
 
         # Initialize dataframe to store the results of the index
         df_results = pd.DataFrame(
-            columns=["N", "Tiempo de calculo de los histogramas", "Tiempo de muestreo", 'Tiempo de corrida']
+            columns=[
+                "N",
+                "Tiempo de calculo de los histogramas",
+                "Tiempo de muestreo",
+                "Tiempo de corrida",
+            ]
             + columns_order
             + [
                 columns_order[i] + " - " + columns_order[j]
@@ -1041,10 +1286,16 @@ def barrido(
             counts_2d_container += counts_2d_batch
 
             # normalize counts_container and take aways the zeros
-            counts_1d_container_normalized, counts_2d_container_normalized = normalize_counts(
-                counts_1d_container, counts_2d_container, edges_1d, edges_2d_1, edges_2d_2, value_to_replace_0= value_to_replace_0
+            counts_1d_container_normalized, counts_2d_container_normalized = (
+                normalize_counts(
+                    counts_1d_container,
+                    counts_2d_container,
+                    edges_1d,
+                    edges_2d_1,
+                    edges_2d_2,
+                    value_to_replace_0=value_to_replace_0,
+                )
             )
-            
 
             # Save plots of variables for each number of samples
             plot_correlated_variables_counts(
@@ -1058,13 +1309,23 @@ def barrido(
             )
             # print("synthethic different than zero: ",
             kl_1d = [
-                abs(np.sum(rel_entr(original[synthetic!=0], synthetic[synthetic!=0])))/original[synthetic!=0].size
+                abs(
+                    np.sum(
+                        rel_entr(original[synthetic != 0], synthetic[synthetic != 0])
+                    )
+                )
+                / original[synthetic != 0].size
                 for original, synthetic in zip(
                     counts_1d_original, counts_1d_container_normalized
                 )
             ]
             kl_2d = [
-                abs(np.sum(rel_entr(original[synthetic!=0], synthetic[synthetic!=0])))/original[synthetic!=0].size
+                abs(
+                    np.sum(
+                        rel_entr(original[synthetic != 0], synthetic[synthetic != 0])
+                    )
+                )
+                / original[synthetic != 0].size
                 for original, synthetic in zip(
                     counts_2d_original, counts_2d_container_normalized
                 )
@@ -1073,7 +1334,14 @@ def barrido(
             time_running_container += time.perf_counter() - start_time
 
             df_results.loc[len(df_results)] = (
-                [sum(N[: j + 1]), time_histo, time_sample_container, time_running_container] + kl_1d + kl_2d
+                [
+                    sum(N[: j + 1]),
+                    time_histo,
+                    time_sample_container,
+                    time_running_container,
+                ]
+                + kl_1d
+                + kl_2d
             )
 
         # Save the results in a .csv file
@@ -1089,40 +1357,32 @@ def barrido(
         )
 
 
-
 def normalize_counts(
-        counts_1d: np.ndarray,
-        counts_2d: np.ndarray,
-        edges_1d: np.ndarray,
-        edges_2d_1: np.ndarray,
-        edges_2d_2: np.ndarray,
-        value_to_replace_0: float = 1e-6,
+    counts_1d: np.ndarray,
+    counts_2d: np.ndarray,
+    edges_1d: np.ndarray,
+    edges_2d_1: np.ndarray,
+    edges_2d_2: np.ndarray,
+    value_to_replace_0: float = 1e-6,
 ) -> tuple[np.ndarray, np.ndarray]:
-        
-        delta_1 = edges_1d[0][1] - edges_1d[0][0]
-    
-        counts_1d = np.array(
-            [counts / counts.sum()/delta_1 for counts in counts_1d]
-        )
-        if value_to_replace_0 is not None:
-            counts_1d[counts_1d == 0] = (
-                value_to_replace_0
-            )
 
-        delta_2_1 = edges_2d_1[0][1] - edges_2d_1[0][0]
-        delta_2_2 = edges_2d_2[0][1] - edges_2d_2[0][0]
+    delta_1 = edges_1d[0][1] - edges_1d[0][0]
 
-        counts_2d = np.array(
-            [counts / counts.sum()/ delta_2_1 / delta_2_2 for counts in counts_2d]
-        )
+    counts_1d = np.array([counts / counts.sum() / delta_1 for counts in counts_1d])
+    if value_to_replace_0 is not None:
+        counts_1d[counts_1d == 0] = value_to_replace_0
 
-        if value_to_replace_0 is not None:
-            counts_2d[counts_2d == 0] = (
-                value_to_replace_0
-            )
+    delta_2_1 = edges_2d_1[0][1] - edges_2d_1[0][0]
+    delta_2_2 = edges_2d_2[0][1] - edges_2d_2[0][0]
 
-        return counts_1d, counts_2d
+    counts_2d = np.array(
+        [counts / counts.sum() / delta_2_1 / delta_2_2 for counts in counts_2d]
+    )
 
+    if value_to_replace_0 is not None:
+        counts_2d[counts_2d == 0] = value_to_replace_0
+
+    return counts_1d, counts_2d
 
 
 def combine_images(num_folders: int, image_name: str = "1000000.png"):
@@ -1159,8 +1419,13 @@ def combine_images(num_folders: int, image_name: str = "1000000.png"):
     label_padding = int(new_img_height * 0.1)  # Additional padding for label text
 
     # Dimensions of the final combined image, including padding for labels
-    combined_width = new_img_width * images_per_folder + (images_per_folder - 1) * column_separator_thickness
-    combined_height = (new_img_height + label_padding) * num_folders + (num_folders - 1) * row_separator_thickness
+    combined_width = (
+        new_img_width * images_per_folder
+        + (images_per_folder - 1) * column_separator_thickness
+    )
+    combined_height = (new_img_height + label_padding) * num_folders + (
+        num_folders - 1
+    ) * row_separator_thickness
 
     # Create a blank image with extra space for separators and labels
     combined_img = Image.new("RGB", (combined_width, combined_height), "white")
@@ -1169,9 +1434,11 @@ def combine_images(num_folders: int, image_name: str = "1000000.png"):
     font_size = int(new_img_height * 0.1)  # Relative font size based on image height
     try:
 
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+        font = ImageFont.truetype(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size
+        )
     except IOError:
-        print('prrr')
+        print("prrr")
         font = ImageFont.load_default()  # Use default font if custom font fails
 
     # Draw object to add lines and text
@@ -1182,13 +1449,20 @@ def combine_images(num_folders: int, image_name: str = "1000000.png"):
         folder_path = os.path.join(main_dir, str(i))
 
         # Calculate y position with row separator space
-        y_offset = (i - 1) * (new_img_height + label_padding + row_separator_thickness) - int(new_img_height * 0.1)
+        y_offset = (i - 1) * (
+            new_img_height + label_padding + row_separator_thickness
+        ) - int(new_img_height * 0.1)
 
         # Add row label at the top of each row
         label_text = f"INDEX = {i}"
         text_width, text_height = draw.textsize(label_text, font=font)
         text_x = (combined_width - text_width) // 2
-        draw.text((text_x, y_offset + int(new_img_height * 0.1)), label_text, fill="black", font=font)
+        draw.text(
+            (text_x, y_offset + int(new_img_height * 0.1)),
+            label_text,
+            fill="black",
+            font=font,
+        )
 
         for j in range(1, images_per_folder + 1):
             img_path = os.path.join(folder_path, images_names[j - 1])
@@ -1201,56 +1475,41 @@ def combine_images(num_folders: int, image_name: str = "1000000.png"):
             x_offset = (j - 1) * (new_img_width + column_separator_thickness)
 
             # Paste the resized image into the combined image
-            combined_img.paste(img_resized, (x_offset, y_offset + text_height + label_padding))
+            combined_img.paste(
+                img_resized, (x_offset, y_offset + text_height + label_padding)
+            )
             img.close()
 
     # Draw separators
     for i in range(1, num_folders):
         # Horizontal (row) separators
-        y_position = i * (new_img_height + label_padding + row_separator_thickness) - row_separator_thickness // 2
-        draw.line([(0, y_position), (combined_width, y_position)], fill="black", width=row_separator_thickness)
+        y_position = (
+            i * (new_img_height + label_padding + row_separator_thickness)
+            - row_separator_thickness // 2
+        )
+        draw.line(
+            [(0, y_position), (combined_width, y_position)],
+            fill="black",
+            width=row_separator_thickness,
+        )
 
     for j in range(1, images_per_folder):
         # Vertical (column) separators
-        x_position = j * (new_img_width + column_separator_thickness) - column_separator_thickness // 2
-        draw.line([(x_position, 0), (x_position, combined_height)], fill="black", width=column_separator_thickness)
+        x_position = (
+            j * (new_img_width + column_separator_thickness)
+            - column_separator_thickness // 2
+        )
+        draw.line(
+            [(x_position, 0), (x_position, combined_height)],
+            fill="black",
+            width=column_separator_thickness,
+        )
 
     # Save the final combined image
     combined_img.save(output_path)
 
     # Free up resources
     combined_img.close()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # EN DESUSO:
@@ -1347,7 +1606,6 @@ def calculate_original_histograms(
     return counts_1d_original, edges_1d, counts_2d_original, edges_2d_1, edges_2d_2
 
 
-
 def Xplot_correlated_variables_counts(
     counts_1d: np.ndarray,
     counts_2d: np.ndarray,
@@ -1398,7 +1656,6 @@ def Xplot_correlated_variables_counts(
 
     # Close the figure to free up memory
     plt.close(fig)
-
 
 
 def Xget_time_and_counts(
@@ -1458,7 +1715,6 @@ def Xget_time_and_counts(
     )
 
     return time_sampling, counts_1d, counts_2d
-
 
 
 def Xbarrido(
@@ -1693,7 +1949,6 @@ def Xbarrido(
     # data["min_2d"] = min_2d
     # data["max_2d"] = max_2d
     # data.to_csv("index_information.csv", index=True)
-
 
 
 def calculate_cumulative_histograms2(

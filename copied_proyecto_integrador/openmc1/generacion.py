@@ -51,48 +51,7 @@ MCPLColumns = [
 ]
 
 
-def format_df_to_MCPL(
-    df: pd.DataFrame,
-    z: float,
-    time: float = 0,
-    wgt: float = 1,
-    delayed_group: float = 0,
-    particle: int = 2112,
-    E_0: float = 20,
-) -> pd.DataFrame:
-    
-    # Vectorized calculations
-    df["theta"] = np.arccos(df["mu"])
-    df["E"] = E_0 * np.exp(-df["ln(E0/E)"])  # MeV
-    df["u_x"] = np.cos(df["phi"]) * np.sin(df["theta"])
-    df["u_y"] = np.sin(df["phi"]) * np.sin(df["theta"])
-    df["u_z"] = np.cos(df["theta"])
 
-    # Construct the result DataFrame with all columns in one step
-    df_result = pd.DataFrame({
-        "id": df.index,
-        "type": particle,
-        "E": df["E"],
-        "x": df["x"],
-        "y": df["y"],
-        "z": z,
-        "u": df["u_x"],
-        "v": df["u_y"],
-        "w": df["u_z"],
-        "t": time,
-        "wgt": wgt,
-        "px": 0,
-        "py": 0,
-        "pz": 0,
-        "userflags": delayed_group,
-    })
-
-    # Ensure integer columns are correctly typed
-    df_result["id"] = df_result["id"].astype(int)
-    df_result["type"] = df_result["type"].astype(int)
-    df_result["userflags"] = df_result["userflags"].astype(int)
-
-    return df_result
 
 df_formatted = format_df_to_MCPL(df_sampled, z=5)
 print(df_formatted.head())
