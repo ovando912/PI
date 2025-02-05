@@ -1,10 +1,10 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <geometry>
   <cell id="3" material="2" name="agua" region="7 -8 9 -10 11 -12" universe="2"/>
-  <surface boundary="vacuum" coeffs="-0.75" id="7" type="x-plane"/>
-  <surface boundary="vacuum" coeffs="0.75" id="8" type="x-plane"/>
-  <surface boundary="vacuum" coeffs="-0.75" id="9" type="y-plane"/>
-  <surface boundary="vacuum" coeffs="0.75" id="10" type="y-plane"/>
-  <surface boundary="vacuum" coeffs="4.999999" id="11" type="z-plane"/>
-  <surface boundary="vacuum" coeffs="15" id="12" type="z-plane"/>
+  <surface boundary="vacuum" coeffs="-7.5" id="7" type="x-plane"/>
+  <surface boundary="vacuum" coeffs="7.5" id="8" type="x-plane"/>
+  <surface boundary="vacuum" coeffs="-7.5" id="9" type="y-plane"/>
+  <surface boundary="vacuum" coeffs="7.5" id="10" type="y-plane"/>
+  <surface boundary="vacuum" coeffs="19.999999" id="11" type="z-plane"/>
+  <surface boundary="vacuum" coeffs="100" id="12" type="z-plane"/>
 </geometry>

@@ -1168,6 +1168,7 @@ def plot_correlated_variables_counts(
 
     if save:
         # Save the figure as a PNG file
+        print('entrp')
         plt.savefig(filename, dpi=300)
 
     # Close the figure to free up memory

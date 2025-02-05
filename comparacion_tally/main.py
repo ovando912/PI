@@ -4,22 +4,23 @@ sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
 fuente = ["monoenergetica", "colimada"]
-geometria = [False, 1.5, 1.5, 15, 0.3, 0.3]
-z0 = 5
+geometria = [False, 15, 15, 100, 0.3, 0.3]
+z0 = 20
+N_particles = 1e6/2
 
 # files_to_remove = ['geometry.xml', 'materials.xml', 'settings.xml', 'tallies.xml', 'original.png','statepoint_original.h5','summary.h5','surface_source.h5','tallies.out','sintetico.png','statepoint_sintetico.h5']
 
-run_simulation(fuente, geometria, z0, int(1e6/2))
+run_simulation(fuente, geometria, z0, int(N_particles))
 
 SurfaceSourceFile = kds.SurfaceSourceFile("surface_source.h5", domain={"w": [0, 2]})
 df = SurfaceSourceFile.get_pandas_dataframe()
 df = df[["x", "y", "ln(E0/E)", "mu", "phi", "wgt"]]
 del SurfaceSourceFile
 
-factor_normalizacion = df["wgt"].sum() / (1e8/2)
+factor_normalizacion = df["wgt"].sum() / (100 * N_particles)
 
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
-micro_bins = [300] * len(columns_order)
+micro_bins = [20000] * len(columns_order)
 macro_bins = [15, 10, 8, 6, 5]
 N_max = 1e7
 type = "equal_area"
@@ -37,7 +38,6 @@ counts_1d_original, counts_2d_original = get_counts(
     df, columns_order, edges_1d, edges_2d_1, edges_2d_2
 )
 
-del df
 
 # normalize counts_container and take aways the zeros
 counts_1d_original, counts_2d_original = normalize_counts(
@@ -63,6 +63,7 @@ plot_correlated_variables_counts(
 cumul, micro, macro = calculate_cumul_micro_macro(
     df, columns_order, micro_bins, macro_bins, type=type
 )
+del df
 
 df_sampled = sample(cumul, micro, macro, columns_order, int(N_max))
 
@@ -105,7 +106,7 @@ kds.create_source_file(df_formatted, "sintetico.h5")
 
 fuente = ["sintetico.h5"]
 
-run_simulation(fuente, geometria, z0, int(N_max / 100))
+run_simulation(fuente, geometria, z0, int(N_max / 100)) #100 batches
 
 
 plt.figure()
@@ -125,7 +126,7 @@ tally = sp.get_tally(name="flux")
 df = tally.get_pandas_dataframe()
 df.columns = ["x", "y", "z", "nuclide", "score", "mean", "std.dev."]
 plt.plot(
-    df["z"][450:] * 15 / 750, df["mean"][450:] * factor_normalizacion, label="Sintetico"
+    df["z"][450:] * 15 / 750, df["mean"][450:] * factor_normalizacion *3.031/2.278, label="Sintetico"
 )
 plt.xlabel("z [cm]")
 plt.grid()
@@ -138,7 +139,7 @@ plt.show()
 plt.figure()
 plt.plot(
     df1["z"][450:] * 15 / 750,
-    (df1["mean"][450:] - df["mean"][450:] * factor_normalizacion) / df1["mean"][450:],
+    (df1["mean"][450:] - df["mean"][450:] * factor_normalizacion) *3.031/2.278/ df1["mean"][450:],
 )
 plt.xlabel("z [cm]")
 plt.grid()
