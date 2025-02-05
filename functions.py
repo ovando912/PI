@@ -65,6 +65,246 @@ def format_df_to_MCPL(
     return df_result
 
 
+def run_simulationf(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
+    """
+    Ejecuta una simulación en OpenMC con la configuración especificada.
+
+    Parámetros:
+      fuente (list):
+          - Si tiene 1 elemento: se asume que es la ruta a un archivo de fuente.
+          - Si tiene 2 elementos: se asume que es [fuente_energia, fuente_direccion] para fuente independiente.
+              - fuente_energia puede ser:
+                  - "monoenergetica": Fuente con energía fija.
+                  - "espectro_fision": Fuente con espectro de fisión.
+                  - "espectro_termico": Fuente con espectro térmico.
+              - fuente_direccion puede ser:
+                  - "colimada": Fuente con dirección fija.
+                  - "isotropica": Fuente con distribución isotrópica.
+
+      geometria (list): Parámetros geométricos:
+          - geometria[0] (bool): Flag para indicar si existe región de vacío.
+          - geometria[1] (float): L_x, ancho del paralelepípedo.
+          - geometria[2] (float): L_y, ancho del paralelepípedo.
+          - geometria[3] (float): L_z, altura del paralelepípedo.
+          - Si geometria[0] es True, se esperan además:
+                - geometria[4] (float): L_x_vacio.
+                - geometria[5] (float): L_y_vacio.
+
+      z0 (float): Posición en z para la superficie de track.
+      N_particles (int): Número de partículas a simular en total. 
+    """
+
+    # Configuración de secciones de reacción
+    openmc.config["cross_sections"] = (
+        "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
+    )
+
+    # --------------------------------------------------------------------------
+    # Procesamiento de la fuente
+    # --------------------------------------------------------------------------
+    if len(fuente) == 1:
+        source_file = fuente[0]
+        source = openmc.FileSource(source_file)
+    elif len(fuente) == 2:
+        fuente_energia, fuente_direccion = fuente
+        source = openmc.IndependentSource()
+        source.particle = "neutron"
+
+        # Distribución espacial: se coloca en la región central de la geometría
+        L_x, L_y = geometria[1], geometria[2]
+        x_dist = openmc.stats.Uniform(-L_x / 2, L_x / 2)
+        y_dist = openmc.stats.Uniform(-L_y / 2, L_y / 2)
+        z_dist = openmc.stats.Discrete(1e-6, 1)  # Se fija z muy cerca de 0
+        source.space = openmc.stats.CartesianIndependent(x_dist, y_dist, z_dist)
+
+        # Distribución de energía
+        if fuente_energia == "monoenergetica":
+            source.energy = openmc.stats.Discrete([1e6], [1])
+
+        # Distribución angular
+        if fuente_direccion == "colimada":
+            mu = openmc.stats.Discrete([1], [1])
+            phi = openmc.stats.Uniform(0.0, 2 * np.pi)
+            source.angle = openmc.stats.PolarAzimuthal(mu, phi)
+    else:
+        raise ValueError("El parámetro 'fuente' debe contener 1 o 2 elementos.")
+
+    # --------------------------------------------------------------------------
+    # Procesamiento de la geometría
+    # --------------------------------------------------------------------------
+    # Extraer parámetros geométricos
+    vacio = geometria[0]
+    L_x, L_y, L_z = geometria[1:4]
+    if vacio:
+        L_x_vacio, L_y_vacio = geometria[4:6]
+
+    # Definir material: agua
+    mat_agua = openmc.Material(name="agua")
+    mat_agua.add_nuclide("H1", 2.0, "ao")
+    mat_agua.add_nuclide("O16", 1.0, "ao")
+    mat_agua.add_s_alpha_beta("c_H_in_H2O")
+    mat_agua.set_density("g/cm3", 1.0)
+    mats = openmc.Materials([mat_agua])
+    mats.export_to_xml()
+
+    # Definir superficies externas
+    surfaces = {
+        "x_min": openmc.XPlane(x0=-L_x / 2, boundary_type="vacuum"),
+        "x_max": openmc.XPlane(x0=L_x / 2, boundary_type="vacuum"),
+        "y_min": openmc.YPlane(y0=-L_y / 2, boundary_type="vacuum"),
+        "y_max": openmc.YPlane(y0=L_y / 2, boundary_type="vacuum"),
+        "z_min": openmc.ZPlane(z0=0, boundary_type="vacuum"),
+        "z_max": openmc.ZPlane(z0=L_z, boundary_type="vacuum"),
+        "z_track": openmc.ZPlane(z0=z0, boundary_type="transmission", surface_id=70),
+    }
+
+    # Si hay vacío, definir superficies internas
+    if vacio:
+        surfaces.update(
+            {
+                "x_min_vacio": openmc.XPlane(
+                    x0=-L_x_vacio / 2, boundary_type="transmission"
+                ),
+                "x_max_vacio": openmc.XPlane(
+                    x0=L_x_vacio / 2, boundary_type="transmission"
+                ),
+                "y_min_vacio": openmc.YPlane(
+                    y0=-L_y_vacio / 2, boundary_type="transmission"
+                ),
+                "y_max_vacio": openmc.YPlane(
+                    y0=L_y_vacio / 2, boundary_type="transmission"
+                ),
+            }
+        )
+
+    # Para fuente tipo FileSource se traduce la superficie inferior para posicionar z0
+    if len(fuente) == 1:
+        surfaces["z_min"].translate(vector=(0, 0, z0 - 1e-6), inplace=True)
+
+    # Definir regiones
+    region_externa = (
+        +surfaces["x_min"]
+        & -surfaces["x_max"]
+        & +surfaces["y_min"]
+        & -surfaces["y_max"]
+        & +surfaces["z_min"]
+        & -surfaces["z_max"]
+    )
+
+    if vacio:
+        region_vacio = (
+            +surfaces["x_min_vacio"]
+            & -surfaces["x_max_vacio"]
+            & +surfaces["y_min_vacio"]
+            & -surfaces["y_max_vacio"]
+            & +surfaces["z_min"]
+            & -surfaces["z_max"]
+        )
+
+    # Crear universo y definir celdas según configuración de fuente y vacío
+    universe = openmc.Universe()
+
+    if vacio:
+        if len(fuente) == 2:
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_externa & ~region_vacio & -surfaces["z_track"],
+                    fill=mat_agua,
+                    name="agua1",
+                )
+            )
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_externa & ~region_vacio & +surfaces["z_track"],
+                    fill=mat_agua,
+                    name="agua2",
+                )
+            )
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_vacio & -surfaces["z_track"], fill=None, name="vacio1"
+                )
+            )
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_vacio & +surfaces["z_track"], fill=None, name="vacio2"
+                )
+            )
+        else:
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_externa & ~region_vacio, fill=mat_agua, name="agua"
+                )
+            )
+            universe.add_cell(openmc.Cell(region=region_vacio, fill=None, name="vacio"))
+    else:
+        if len(fuente) == 2:
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_externa & -surfaces["z_track"],
+                    fill=mat_agua,
+                    name="agua1",
+                )
+            )
+            universe.add_cell(
+                openmc.Cell(
+                    region=region_externa & +surfaces["z_track"],
+                    fill=mat_agua,
+                    name="agua2",
+                )
+            )
+        else:
+            universe.add_cell(
+                openmc.Cell(region=region_externa, fill=mat_agua, name="agua")
+            )
+
+    geom = openmc.Geometry(universe)
+    geom.export_to_xml()
+
+    # --------------------------------------------------------------------------
+    # Configuración de settings y tallies
+    # --------------------------------------------------------------------------
+    settings = openmc.Settings()
+    if len(fuente) == 2:
+        settings.surf_source_write = {"surface_ids": [70], "max_particles": 10000000}
+    settings.run_mode = "fixed source"
+    settings.batches = 100
+    settings.particles = int(N_particles/100)
+    settings.source = source
+    settings.export_to_xml()
+
+    # Tally: malla para flujo
+    mesh = openmc.RectilinearMesh()
+    mesh.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
+    mesh.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
+    mesh.z_grid = np.linspace(0, L_z, 601)
+    mesh_filter = openmc.MeshFilter(mesh)
+    tally_flux = openmc.Tally(name="flux")
+    tally_flux.filters = [mesh_filter]
+    tally_flux.scores = ["flux"]
+
+    tallies = openmc.Tallies([tally_flux])
+    tallies.export_to_xml()
+
+    # --------------------------------------------------------------------------
+    # Limpieza de archivos previos y ejecución de la simulación
+    # --------------------------------------------------------------------------
+    for file in glob.glob("statepoint.*.h5"):
+        os.remove(file)
+    if os.path.exists("summary.h5"):
+        os.remove("summary.h5")
+
+    openmc.run()
+
+    # Mover archivos de salida según tipo de fuente
+    statepoint_files = glob.glob("statepoint.*.h5")
+    nuevo_nombre = (
+        "statepoint_original.h5" if len(fuente) == 2 else "statepoint_sintetico.h5"
+    )
+    for file in statepoint_files:
+        shutil.move(file, nuevo_nombre)
+
+
 def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
     openmc.config["cross_sections"] = (
         "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
@@ -259,6 +499,108 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
     else:
         for file in statepoint_files:
             shutil.move(file, "statepoint_sintetico.h5")
+
+
+def calculate_cumul_micro_macrof(
+    df: pd.DataFrame,
+    columns: list,
+    micro_bins: list,
+    macro_bins: list,
+    binning_type: str = "equal_bins"
+) -> tuple[list, list, list]:
+    """
+    Calcula recursivamente los histogramas acumulados (cumulative) para cada dimensión.
+
+    Parámetros:
+      df (pd.DataFrame): DataFrame con los datos.
+      columns (list): Lista con los nombres de las columnas a procesar.
+      micro_bins (list): Lista con el número de bins para el histograma acumulado de la columna micro.
+      macro_bins (list): Lista con el número de bins para el histograma acumulado de la columna macro.
+      binning_type (str): Tipo de binning a utilizar ('equal_bins' o 'equal_area').
+
+    Retorna:
+      Tuple de tres listas:
+        - cumul_list: Histogramas acumulados para cada dimensión.
+        - micro_list: Límites de los bins micro para cada dimensión.
+        - macro_list: Límites de los bins macro para cada dimensión (None para la última dimensión). #TODO sacar None
+    """
+
+    # -----------------------------------------------------------------------------
+    # 1. Procesamiento de la primera columna (dimensión actual)
+    # -----------------------------------------------------------------------------
+    # Calcula el histograma ponderado (usando la columna "wgt") para la columna actual
+    counts, micro_edges = np.histogram(df[columns[0]], bins=micro_bins[0], weights=df["wgt"])
+    
+    # Calcula el histograma acumulado normalizado
+    total_count = counts.sum()
+    if total_count > 0:
+        cumul = np.insert(np.cumsum(counts) / total_count, 0, 0)  
+    else:
+        cumul = np.zeros(len(counts) + 1)
+    
+    # Inicializa las listas para guardar resultados
+    cumul_list = [cumul]
+    micro_list = [micro_edges]
+
+    # Caso base: si solo queda una columna, no se define macro (se termina la recursión)
+    if len(columns) == 1:
+        macro_list = [None]
+        return cumul_list, micro_list, macro_list
+
+    # -----------------------------------------------------------------------------
+    # 2. Determinación de los bins macro para la columna actual según el tipo de binning
+    # -----------------------------------------------------------------------------
+    if binning_type == "equal_bins":
+        # Usando np.histogram para obtener los bordes (sin ponderar)
+        _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
+    elif binning_type == "equal_area":
+        # Usando pd.qcut para obtener cortes que dividan en áreas iguales (ponderando)
+        _, macro_edges = pd.qcut(
+            df[columns[0]],
+            q=macro_bins[0],
+            labels=False,
+            retbins=True,
+            duplicates="drop"
+        )
+    else:
+        raise ValueError("El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'.")
+
+    macro_list = [macro_edges]
+
+    # -----------------------------------------------------------------------------
+    # 3. División del DataFrame según los bins macro para aplicar recursividad
+    # -----------------------------------------------------------------------------
+    # Asigna cada fila del DataFrame al bin correspondiente de acuerdo a macro_edges
+    bin_indices = np.digitize(df[columns[0]], bins=macro_edges) - 1
+
+    # Prepara las listas para almacenar resultados recursivos en cada subgrupo (cada bin macro)
+    # Se reserva un espacio en cada lista para cada dimensión adicional
+    for _ in range(len(columns) - 1):
+        cumul_list.append([])
+        micro_list.append([])
+        macro_list.append([])
+
+    # Procesa recursivamente cada subgrupo definido por los bins macro
+    for bin_idx in range(len(macro_edges) - 1):
+        # Filtra las filas que caen en el bin actual
+        df_filtered = df[bin_indices == bin_idx]
+        
+        # Llama recursivamente para las columnas restantes
+        cumul_aux, micro_aux, macro_aux = calculate_cumul_micro_macro(
+            df_filtered, 
+            columns[1:], 
+            micro_bins[1:], 
+            macro_bins[1:], 
+            binning_type
+        )
+
+        # Guarda los resultados recursivos en las listas correspondientes
+        for j in range(len(cumul_aux)):
+            cumul_list[j + 1].append(cumul_aux[j])
+            micro_list[j + 1].append(micro_aux[j])
+            macro_list[j + 1].append(macro_aux[j])
+
+    return cumul_list, micro_list, macro_list
 
 
 def calculate_cumul_micro_macro(
@@ -1168,7 +1510,6 @@ def plot_correlated_variables_counts(
 
     if save:
         # Save the figure as a PNG file
-        print('entrp')
         plt.savefig(filename, dpi=300)
 
     # Close the figure to free up memory

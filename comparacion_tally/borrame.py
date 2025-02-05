@@ -3,7 +3,7 @@ import sys
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
-factor_normalizacion = 2.615/2.624 *2.614 / 2.61 *8.424/4631
+factor_normalizacion = 2.615/2.624 *2.614 / 2.61 *8.424/4631/0.08257*3.336
 z_min = 140
 
 # Load the statepoint file 1

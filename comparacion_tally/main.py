@@ -1,12 +1,11 @@
 import sys
-
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
 fuente = ["monoenergetica", "colimada"]
 geometria = [False, 15, 15, 100, 0.3, 0.3]
-z0 = 20
-N_particles = 1e6/2
+z0 = 10
+N_particles = 1e5
 
 # files_to_remove = ['geometry.xml', 'materials.xml', 'settings.xml', 'tallies.xml', 'original.png','statepoint_original.h5','summary.h5','surface_source.h5','tallies.out','sintetico.png','statepoint_sintetico.h5']
 
@@ -22,7 +21,7 @@ factor_normalizacion = df["wgt"].sum() / (100 * N_particles)
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
 micro_bins = [20000] * len(columns_order)
 macro_bins = [15, 10, 8, 6, 5]
-N_max = 1e7
+N_max = 1e5
 type = "equal_area"
 
 
@@ -110,13 +109,14 @@ run_simulation(fuente, geometria, z0, int(N_max / 100)) #100 batches
 
 
 plt.figure()
+z_min = int(z0 *750/100 *0.8)
 
 # Load the statepoint file 1
 sp = openmc.StatePoint("statepoint_original.h5")
 tally = sp.get_tally(name="flux")
 df = tally.get_pandas_dataframe()
 df.columns = ["x", "y", "z", "nuclide", "score", "mean", "std.dev."]
-plt.plot(df["z"][450:] * 15 / 750, df["mean"][450:], label="Original")
+plt.plot(df["z"][z_min:] * 100 / 750, df["mean"][z_min:], label="Original")
 
 df1 = df
 
@@ -126,9 +126,10 @@ tally = sp.get_tally(name="flux")
 df = tally.get_pandas_dataframe()
 df.columns = ["x", "y", "z", "nuclide", "score", "mean", "std.dev."]
 plt.plot(
-    df["z"][450:] * 15 / 750, df["mean"][450:] * factor_normalizacion *3.031/2.278, label="Sintetico"
+    df["z"][z_min:] * 100 / 750, df["mean"][z_min:] * factor_normalizacion, label="Sintetico"
 )
 plt.xlabel("z [cm]")
+plt.yscale("log")
 plt.grid()
 plt.title("Flux vs. z")
 plt.legend()
@@ -138,8 +139,8 @@ plt.show()
 # error relativo
 plt.figure()
 plt.plot(
-    df1["z"][450:] * 15 / 750,
-    (df1["mean"][450:] - df["mean"][450:] * factor_normalizacion) *3.031/2.278/ df1["mean"][450:],
+    df1["z"][z_min:] * 100 / 750,
+    (df1["mean"][z_min:] - df["mean"][z_min:] * factor_normalizacion)/ df1["mean"][z_min:],
 )
 plt.xlabel("z [cm]")
 plt.grid()

@@ -5,6 +5,6 @@
   <surface boundary="vacuum" coeffs="7.5" id="8" type="x-plane"/>
   <surface boundary="vacuum" coeffs="-7.5" id="9" type="y-plane"/>
   <surface boundary="vacuum" coeffs="7.5" id="10" type="y-plane"/>
-  <surface boundary="vacuum" coeffs="19.999999" id="11" type="z-plane"/>
+  <surface boundary="vacuum" coeffs="9.999999" id="11" type="z-plane"/>
   <surface boundary="vacuum" coeffs="100" id="12" type="z-plane"/>
 </geometry>
