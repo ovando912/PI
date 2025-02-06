@@ -65,7 +65,7 @@ def format_df_to_MCPL(
     return df_result
 
 
-def run_simulationf(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
+def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
     """
     Ejecuta una simulación en OpenMC con la configuración especificada.
 
@@ -91,7 +91,7 @@ def run_simulationf(fuente: list, geometria: list, z0: float, N_particles: int) 
                 - geometria[5] (float): L_y_vacio.
 
       z0 (float): Posición en z para la superficie de track.
-      N_particles (int): Número de partículas a simular en total. 
+      N_particles (int): Número de partículas a simular en total.
     """
 
     # Configuración de secciones de reacción
@@ -269,21 +269,32 @@ def run_simulationf(fuente: list, geometria: list, z0: float, N_particles: int) 
         settings.surf_source_write = {"surface_ids": [70], "max_particles": 10000000}
     settings.run_mode = "fixed source"
     settings.batches = 100
-    settings.particles = int(N_particles/100)
+    settings.particles = int(N_particles / 100)
     settings.source = source
     settings.export_to_xml()
 
-    # Tally: malla para flujo
+    # Tally: malla para flujo total
     mesh = openmc.RectilinearMesh()
     mesh.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
     mesh.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
     mesh.z_grid = np.linspace(0, L_z, 601)
     mesh_filter = openmc.MeshFilter(mesh)
-    tally_flux = openmc.Tally(name="flux")
-    tally_flux.filters = [mesh_filter]
-    tally_flux.scores = ["flux"]
+    tally_flux_total = openmc.Tally(name="flux_total")
+    tally_flux_total.filters = [mesh_filter]
+    tally_flux_total.scores = ["flux"]
 
-    tallies = openmc.Tallies([tally_flux])
+    # Tally: malla para flujo en vacio
+    if vacio:
+        mesh_vacio = openmc.RectilinearMesh()
+        mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
+        mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
+        mesh_vacio.z_grid = np.linspace(0, L_z, 601)
+        mesh_filter_vacio = openmc.MeshFilter(mesh_vacio)
+        tally_flux_vacio = openmc.Tally(name="flux_vacio")
+        tally_flux_vacio.filters = [mesh_filter_vacio]
+        tally_flux_vacio.scores = ["flux"]
+
+    tallies = openmc.Tallies([tally_flux_total, tally_flux_vacio] if vacio else [tally_flux_total])
     tallies.export_to_xml()
 
     # --------------------------------------------------------------------------
@@ -305,7 +316,7 @@ def run_simulationf(fuente: list, geometria: list, z0: float, N_particles: int) 
         shutil.move(file, nuevo_nombre)
 
 
-def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
+def run_simulation_old(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
     openmc.config["cross_sections"] = (
         "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
     )
@@ -456,6 +467,10 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
     settings.batches = 100
     settings.particles = N_particles
     settings.source = source if len(fuente) == 2 else openmc.FileSource(source_file)
+    
+    # Establecer una semilla aleatoria diferente para cada simulación
+    settings.seed = np.random.randint(1, 1e9)
+    
     settings.export_to_xml()
 
     # Defino tallies
@@ -501,12 +516,12 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
             shutil.move(file, "statepoint_sintetico.h5")
 
 
-def calculate_cumul_micro_macrof(
+def calculate_cumul_micro_macro(
     df: pd.DataFrame,
     columns: list,
     micro_bins: list,
     macro_bins: list,
-    binning_type: str = "equal_bins"
+    binning_type: str = "equal_bins",
 ) -> tuple[list, list, list]:
     """
     Calcula recursivamente los histogramas acumulados (cumulative) para cada dimensión.
@@ -529,15 +544,17 @@ def calculate_cumul_micro_macrof(
     # 1. Procesamiento de la primera columna (dimensión actual)
     # -----------------------------------------------------------------------------
     # Calcula el histograma ponderado (usando la columna "wgt") para la columna actual
-    counts, micro_edges = np.histogram(df[columns[0]], bins=micro_bins[0], weights=df["wgt"])
-    
+    counts, micro_edges = np.histogram(
+        df[columns[0]], bins=micro_bins[0], weights=df["wgt"]
+    )
+
     # Calcula el histograma acumulado normalizado
     total_count = counts.sum()
     if total_count > 0:
-        cumul = np.insert(np.cumsum(counts) / total_count, 0, 0)  
+        cumul = np.insert(np.cumsum(counts) / total_count, 0, 0)
     else:
         cumul = np.zeros(len(counts) + 1)
-    
+
     # Inicializa las listas para guardar resultados
     cumul_list = [cumul]
     micro_list = [micro_edges]
@@ -551,19 +568,21 @@ def calculate_cumul_micro_macrof(
     # 2. Determinación de los bins macro para la columna actual según el tipo de binning
     # -----------------------------------------------------------------------------
     if binning_type == "equal_bins":
-        # Usando np.histogram para obtener los bordes (sin ponderar)
+        # Usando np.histogram para obtener los bordes
         _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
     elif binning_type == "equal_area":
-        # Usando pd.qcut para obtener cortes que dividan en áreas iguales (ponderando)
+        # Usando pd.qcut para obtener cortes que dividan en áreas iguales
         _, macro_edges = pd.qcut(
             df[columns[0]],
             q=macro_bins[0],
             labels=False,
             retbins=True,
-            duplicates="drop"
+            duplicates="drop",
         )
     else:
-        raise ValueError("El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'.")
+        raise ValueError(
+            "El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'."
+        )
 
     macro_list = [macro_edges]
 
@@ -584,14 +603,10 @@ def calculate_cumul_micro_macrof(
     for bin_idx in range(len(macro_edges) - 1):
         # Filtra las filas que caen en el bin actual
         df_filtered = df[bin_indices == bin_idx]
-        
+
         # Llama recursivamente para las columnas restantes
         cumul_aux, micro_aux, macro_aux = calculate_cumul_micro_macro(
-            df_filtered, 
-            columns[1:], 
-            micro_bins[1:], 
-            macro_bins[1:], 
-            binning_type
+            df_filtered, columns[1:], micro_bins[1:], macro_bins[1:], binning_type
         )
 
         # Guarda los resultados recursivos en las listas correspondientes
@@ -603,7 +618,7 @@ def calculate_cumul_micro_macrof(
     return cumul_list, micro_list, macro_list
 
 
-def calculate_cumul_micro_macro(
+def calculate_cumul_micro_macro_old(
     df: pd.DataFrame,
     columns: list,  #
     micro_bins: list,  # Number of bins for the cumulative histogram of the micro column
@@ -1480,6 +1495,7 @@ def plot_correlated_variables_counts(
                 # Diagonal plots: Plot histograms when col1 == col2
                 axes[i, j].stairs(counts_1d[i], edges_1d[i], fill=True, color="skyblue")
                 axes[i, j].set_title(f"{col1}")
+                axes[i, j].grid()
             if j > i:
                 axes[i, j].pcolormesh(
                     edges_2d_2[iterator],
@@ -1488,6 +1504,7 @@ def plot_correlated_variables_counts(
                     cmap="Blues",
                 )
                 axes[i, j].set_title(f"{col1} vs {col2}")
+                axes[i, j].margins(x=0.4, y=0.4)
                 axes[j, i].pcolormesh(
                     edges_2d_1[iterator],
                     edges_2d_2[iterator],
@@ -1495,6 +1512,15 @@ def plot_correlated_variables_counts(
                     cmap="Blues",
                 )
                 axes[j, i].set_title(f"{col2} vs {col1}")
+                # Manually set the limits to add margins
+                x_min, x_max = edges_2d_1[iterator][0], edges_2d_1[iterator][-1]
+                y_min, y_max = edges_2d_2[iterator][0], edges_2d_2[iterator][-1]
+
+                x_margin = (x_max - x_min) * 0.1  # 10% margin
+                y_margin = (y_max - y_min) * 0.1  # 10% margin
+
+                axes[j, i].set_xlim(x_min - x_margin, x_max + x_margin)
+                axes[j, i].set_ylim(y_min - y_margin, y_max + y_margin)
                 iterator += 1
 
             # Set labels
