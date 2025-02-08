@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import kdsource as kds
 import time
 import os
+import math
 from PIL import Image, ImageDraw, ImageFont
 from scipy.stats import entropy
 from scipy.stats import wasserstein_distance
@@ -294,7 +295,9 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
         tally_flux_vacio.filters = [mesh_filter_vacio]
         tally_flux_vacio.scores = ["flux"]
 
-    tallies = openmc.Tallies([tally_flux_total, tally_flux_vacio] if vacio else [tally_flux_total])
+    tallies = openmc.Tallies(
+        [tally_flux_total, tally_flux_vacio] if vacio else [tally_flux_total]
+    )
     tallies.export_to_xml()
 
     # --------------------------------------------------------------------------
@@ -316,7 +319,9 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
         shutil.move(file, nuevo_nombre)
 
 
-def run_simulation_old(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
+def run_simulation_old(
+    fuente: list, geometria: list, z0: float, N_particles: int
+) -> None:
     openmc.config["cross_sections"] = (
         "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
     )
@@ -467,10 +472,10 @@ def run_simulation_old(fuente: list, geometria: list, z0: float, N_particles: in
     settings.batches = 100
     settings.particles = N_particles
     settings.source = source if len(fuente) == 2 else openmc.FileSource(source_file)
-    
+
     # Establecer una semilla aleatoria diferente para cada simulación
     settings.seed = np.random.randint(1, 1e9)
-    
+
     settings.export_to_xml()
 
     # Defino tallies
@@ -522,6 +527,7 @@ def calculate_cumul_micro_macro(
     micro_bins: list,
     macro_bins: list,
     binning_type: str = "equal_bins",
+    user_defined_macro_edges: list = None,
 ) -> tuple[list, list, list]:
     """
     Calcula recursivamente los histogramas acumulados (cumulative) para cada dimensión.
@@ -539,7 +545,8 @@ def calculate_cumul_micro_macro(
         - micro_list: Límites de los bins micro para cada dimensión.
         - macro_list: Límites de los bins macro para cada dimensión (None para la última dimensión). #TODO sacar None
     """
-
+    if len(df) == 0:
+        return ['dog'], ['dog'], ['dog']
     # -----------------------------------------------------------------------------
     # 1. Procesamiento de la primera columna (dimensión actual)
     # -----------------------------------------------------------------------------
@@ -547,6 +554,10 @@ def calculate_cumul_micro_macro(
     counts, micro_edges = np.histogram(
         df[columns[0]], bins=micro_bins[0], weights=df["wgt"]
     )
+
+    if max(micro_edges) > 1 and columns[0] == 'mu':
+        print('mu')
+        
 
     # Calcula el histograma acumulado normalizado
     total_count = counts.sum()
@@ -568,8 +579,37 @@ def calculate_cumul_micro_macro(
     # 2. Determinación de los bins macro para la columna actual según el tipo de binning
     # -----------------------------------------------------------------------------
     if binning_type == "equal_bins":
-        # Usando np.histogram para obtener los bordes
-        _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
+        try:
+            if user_defined_macro_edges[0] is not None:
+                macro_edges_aux = sorted(
+                    [min(df[columns[0]])]
+                    + user_defined_macro_edges[0]
+                    + [max(df[columns[0]])]
+                )
+
+                macro_edges_width = np.diff(macro_edges_aux)
+                macro_edges_width = (
+                    macro_edges_width / macro_edges_width.sum() * macro_bins[0]
+                )
+                macro_edges_width = np.array([math.ceil(x-0.1) for x in macro_edges_width])
+                macro_edges = []
+                for i in range(len(macro_edges_aux) - 1):
+                    start = macro_edges_aux[i]
+                    end = macro_edges_aux[i + 1]
+                    # Genera los puntos del segmento.
+                    seg = np.linspace(start, end, macro_edges_width[i] + 2)
+                    # Si no es el primer segmento, se omite el primer valor para evitar duplicados.
+                    if i > 0:
+                        seg = seg[1:]
+                    macro_edges.append(seg)
+
+                # Concatena todos los segmentos en un solo array
+                macro_edges = np.concatenate(macro_edges)
+            else:
+                # Usando np.histogram para obtener los bordes
+                _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
+        except ValueError:  # Captura cualquier ValueError
+            print("Se detectó un ValueError. Activando debugger...")
     elif binning_type == "equal_area":
         # Usando pd.qcut para obtener cortes que dividan en áreas iguales
         _, macro_edges = pd.qcut(
@@ -606,7 +646,12 @@ def calculate_cumul_micro_macro(
 
         # Llama recursivamente para las columnas restantes
         cumul_aux, micro_aux, macro_aux = calculate_cumul_micro_macro(
-            df_filtered, columns[1:], micro_bins[1:], macro_bins[1:], binning_type
+            df_filtered,
+            columns[1:],
+            micro_bins[1:],
+            macro_bins[1:], #TODO OJO ACA QUE PUEDE HABER MAS MACROGRUPOS QUE LOS PEDIDOS, HABRIA QUE RESPETAR ESO.
+            binning_type,
+            user_defined_macro_edges[1:],
         )
 
         # Guarda los resultados recursivos en las listas correspondientes

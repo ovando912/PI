@@ -3,13 +3,13 @@ import sys
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
-path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/5-2-25"
+path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/6-2-25"
 os.chdir(path)
 
 fuente_original = ["monoenergetica", "colimada"]
 geometria = [True, 15, 15, 100, 3, 3]
 z0 = 5
-N_original = 1e8 / 2 / 5/2
+N_original = 1e8 / 2 / 5 / 2 / 2
 
 # files_to_remove = ['geometry.xml', 'materials.xml', 'settings.xml', 'tallies.xml', 'original.png','statepoint_original.h5','summary.h5','surface_source.h5','tallies.out','sintetico.png','statepoint_sintetico.h5']
 
@@ -25,8 +25,8 @@ cantidad_registrada = len(df)
 
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
 micro_bins = [60000] * len(columns_order)
-macro_bins = [20, 10, 8, 6]
-N_sintetico = 1e7 / 2/2/2
+macro_bins = [12, 10, 10, 8]
+N_sintetico = 1e7 / 2 / 2 / 2 / 2
 type = "equal_bins"
 
 
@@ -64,8 +64,15 @@ plot_correlated_variables_counts(
     filename=f"original.png",
 )
 
+used_defined_edges = [None, [-1.5, 1.5], [-1.5, 1.5], None, None]
+
 cumul, micro, macro = calculate_cumul_micro_macro(
-    df, columns_order, micro_bins, macro_bins, binning_type=type
+    df,
+    columns_order,
+    micro_bins,
+    macro_bins,
+    binning_type=type,
+    user_defined_macro_edges=used_defined_edges,
 )
 del df
 

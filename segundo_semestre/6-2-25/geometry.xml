@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<geometry>
+  <cell id="1" material="1" name="agua1" region="1 -2 3 -4 5 -6 (-7 | 8 | -9 | 10 | -5 | 6) -70" universe="1"/>
+  <cell id="2" material="1" name="agua2" region="1 -2 3 -4 5 -6 (-7 | 8 | -9 | 10 | -5 | 6) 70" universe="1"/>
+  <cell id="3" material="void" name="vacio1" region="7 -8 9 -10 5 -6 -70" universe="1"/>
+  <cell id="4" material="void" name="vacio2" region="7 -8 9 -10 5 -6 70" universe="1"/>
+  <surface boundary="vacuum" coeffs="-7.5" id="1" type="x-plane"/>
+  <surface boundary="vacuum" coeffs="7.5" id="2" type="x-plane"/>
+  <surface boundary="vacuum" coeffs="-7.5" id="3" type="y-plane"/>
+  <surface boundary="vacuum" coeffs="7.5" id="4" type="y-plane"/>
+  <surface boundary="vacuum" coeffs="0" id="5" type="z-plane"/>
+  <surface boundary="vacuum" coeffs="100" id="6" type="z-plane"/>
+  <surface coeffs="-1.5" id="7" type="x-plane"/>
+  <surface coeffs="1.5" id="8" type="x-plane"/>
+  <surface coeffs="-1.5" id="9" type="y-plane"/>
+  <surface coeffs="1.5" id="10" type="y-plane"/>
+  <surface coeffs="5" id="70" type="z-plane"/>
+</geometry>
