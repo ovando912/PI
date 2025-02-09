@@ -546,7 +546,13 @@ def calculate_cumul_micro_macro(
         - macro_list: Límites de los bins macro para cada dimensión (None para la última dimensión). #TODO sacar None
     """
     if len(df) == 0:
-        return ['dog'], ['dog'], ['dog']
+        auxiliar = []
+        for i in range(len(columns)):
+            elemento = None
+            for _ in range(i):
+                elemento = [elemento]
+            auxiliar.append(elemento)
+        return auxiliar, auxiliar, auxiliar
     # -----------------------------------------------------------------------------
     # 1. Procesamiento de la primera columna (dimensión actual)
     # -----------------------------------------------------------------------------
@@ -555,16 +561,19 @@ def calculate_cumul_micro_macro(
         df[columns[0]], bins=micro_bins[0], weights=df["wgt"]
     )
 
-    if max(micro_edges) > 1 and columns[0] == 'mu':
-        print('mu')
-        
+    if max(micro_edges) > 1 and columns[0] == "mu":
+        print(
+            "mu"
+        )  # TODO aca podria ser que ocurre algo raro cuando el df solo contiene 1 elemento.
 
     # Calcula el histograma acumulado normalizado
     total_count = counts.sum()
     if total_count > 0:
         cumul = np.insert(np.cumsum(counts) / total_count, 0, 0)
     else:
-        cumul = np.zeros(len(counts) + 1)
+        cumul = np.zeros(
+            len(counts) + 1
+        )  # TODO hay que ver como cortar el arbol cuando no hay nada en el df.
 
     # Inicializa las listas para guardar resultados
     cumul_list = [cumul]
@@ -582,16 +591,20 @@ def calculate_cumul_micro_macro(
         try:
             if user_defined_macro_edges[0] is not None:
                 macro_edges_aux = sorted(
-                    [min(df[columns[0]])]
-                    + user_defined_macro_edges[0]
-                    + [max(df[columns[0]])]
+                    set(
+                        [min(df[columns[0]]) + abs(min(df[columns[0]]) * 1e-5)]
+                        + user_defined_macro_edges[0]
+                        + [max(df[columns[0]]) + abs(max(df[columns[0]]) * 1e-5)]
+                    )
                 )
 
                 macro_edges_width = np.diff(macro_edges_aux)
                 macro_edges_width = (
                     macro_edges_width / macro_edges_width.sum() * macro_bins[0]
                 )
-                macro_edges_width = np.array([math.ceil(x-0.1) for x in macro_edges_width])
+                macro_edges_width = np.array(
+                    [math.ceil(x - 0.1) for x in macro_edges_width]
+                )
                 macro_edges = []
                 for i in range(len(macro_edges_aux) - 1):
                     start = macro_edges_aux[i]
@@ -605,6 +618,9 @@ def calculate_cumul_micro_macro(
 
                 # Concatena todos los segmentos en un solo array
                 macro_edges = np.concatenate(macro_edges)
+
+                # Deleteo variables inecesarias
+                del macro_edges_aux, macro_edges_width, start, end, seg
             else:
                 # Usando np.histogram para obtener los bordes
                 _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
@@ -624,6 +640,10 @@ def calculate_cumul_micro_macro(
             "El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'."
         )
 
+    # Para solucionar algunos problemas...
+    macro_edges[0] = macro_edges[0] - abs(macro_edges[0]) * 0.1
+    macro_edges[-1] = macro_edges[-1] + abs(macro_edges[-1]) * 0.1
+
     macro_list = [macro_edges]
 
     # -----------------------------------------------------------------------------
@@ -642,14 +662,20 @@ def calculate_cumul_micro_macro(
     # Procesa recursivamente cada subgrupo definido por los bins macro
     for bin_idx in range(len(macro_edges) - 1):
         # Filtra las filas que caen en el bin actual
-        df_filtered = df[bin_indices == bin_idx]
+        if bin_idx == len(macro_edges) - 2:
+            # Última iteración: incluir bin_idx y bin_idx+1
+            df_filtered = df[(bin_indices == bin_idx) | (bin_indices == bin_idx + 1)]
+        else:
+            df_filtered = df[bin_indices == bin_idx]
 
         # Llama recursivamente para las columnas restantes
         cumul_aux, micro_aux, macro_aux = calculate_cumul_micro_macro(
             df_filtered,
             columns[1:],
             micro_bins[1:],
-            macro_bins[1:], #TODO OJO ACA QUE PUEDE HABER MAS MACROGRUPOS QUE LOS PEDIDOS, HABRIA QUE RESPETAR ESO.
+            macro_bins[
+                1:
+            ],  # TODO OJO ACA QUE PUEDE HABER MAS MACROGRUPOS QUE LOS PEDIDOS, HABRIA QUE RESPETAR ESO.
             binning_type,
             user_defined_macro_edges[1:],
         )

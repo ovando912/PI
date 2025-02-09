@@ -9,7 +9,7 @@ os.chdir(path)
 fuente_original = ["monoenergetica", "colimada"]
 geometria = [True, 15, 15, 100, 3, 3]
 z0 = 5
-N_original = 1e8 / 2 / 5 / 2 / 2
+N_original = 5e6 *2
 
 # files_to_remove = ['geometry.xml', 'materials.xml', 'settings.xml', 'tallies.xml', 'original.png','statepoint_original.h5','summary.h5','surface_source.h5','tallies.out','sintetico.png','statepoint_sintetico.h5']
 
@@ -25,8 +25,8 @@ cantidad_registrada = len(df)
 
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
 micro_bins = [60000] * len(columns_order)
-macro_bins = [12, 10, 10, 8]
-N_sintetico = 1e7 / 2 / 2 / 2 / 2
+macro_bins = [10, 6, 6, 4]
+N_sintetico = 4e6
 type = "equal_bins"
 
 
@@ -64,8 +64,8 @@ plot_correlated_variables_counts(
     filename=f"original.png",
 )
 
-used_defined_edges = [None, [-1.5, 1.5], [-1.5, 1.5], None, None]
-
+used_defined_edges = [[3], [-1.5, 1.5], [-1.5, 1.5], [0.99,0.999], None]
+print('flag 1')
 cumul, micro, macro = calculate_cumul_micro_macro(
     df,
     columns_order,
@@ -75,9 +75,9 @@ cumul, micro, macro = calculate_cumul_micro_macro(
     user_defined_macro_edges=used_defined_edges,
 )
 del df
-
+print('flag 2')
 df_sampled = sample(cumul, micro, macro, columns_order, int(N_sintetico))
-
+print('flag 3')
 (
     counts_1d_sintetico,
     counts_2d_sintetico,
