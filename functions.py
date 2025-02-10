@@ -553,12 +553,85 @@ def calculate_cumul_micro_macro(
                 elemento = [elemento]
             auxiliar.append(elemento)
         return auxiliar, auxiliar, auxiliar
+
+
+    # Caso base: si solo queda una columna, no se define macro (se termina la recursión)
+    if len(columns) == 1:
+        macro_list = [None]
+        # return cumul_list, micro_list, macro_list
+    else:
     # -----------------------------------------------------------------------------
+    # 2. Determinación de los bins macro para la columna actual según el tipo de binning
+    # -----------------------------------------------------------------------------
+        if binning_type == "equal_bins":
+            try:
+                if user_defined_macro_edges[0] is not None:
+                    macro_edges_aux = sorted(
+                        set(
+                            [min(df[columns[0]]) + 1e-2]
+                            + user_defined_macro_edges[0]
+                            + [max(df[columns[0]]) + 1e-2]
+                        )
+                    )
+
+                    macro_edges_width = np.diff(macro_edges_aux)
+                    macro_edges_width = (
+                        macro_edges_width / macro_edges_width.sum() * macro_bins[0]
+                    )
+                    macro_edges_width = np.array(
+                        [math.ceil(x - 0.1) for x in macro_edges_width]
+                    )
+                    macro_edges = []
+                    for i in range(len(macro_edges_aux) - 1):
+                        start = macro_edges_aux[i]
+                        end = macro_edges_aux[i + 1]
+                        # Genera los puntos del segmento.
+                        seg = np.linspace(start, end, macro_edges_width[i] + 2)
+                        # Si no es el primer segmento, se omite el primer valor para evitar duplicados.
+                        if i > 0:
+                            seg = seg[1:]
+                        macro_edges.append(seg)
+
+                    # Concatena todos los segmentos en un solo array
+                    macro_edges = np.concatenate(macro_edges)
+
+                    # Deleteo variables inecesarias
+                    del macro_edges_aux, macro_edges_width, start, end, seg
+                else:
+                    # Usando np.histogram para obtener los bordes
+                    _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
+            except ValueError:  # Captura cualquier ValueError
+                print("Se detectó un ValueError. Activando debugger...")
+        elif binning_type == "equal_area":
+            # Usando pd.qcut para obtener cortes que dividan en áreas iguales
+            _, macro_edges = pd.qcut(
+                df[columns[0]],
+                q=macro_bins[0],
+                labels=False,
+                retbins=True,
+                duplicates="drop",
+            )
+        else:
+            raise ValueError(
+                "El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'."
+            )
+
+        # Para solucionar algunos problemas...
+        macro_edges[0] = macro_edges[0] - 1
+        macro_edges[-1] = macro_edges[-1] + 1
+
+        macro_list = [macro_edges]
+
+        # -----------------------------------------------------------------------------
     # 1. Procesamiento de la primera columna (dimensión actual)
     # -----------------------------------------------------------------------------
+
+    micro_edges = np.linspace(min(df[columns[0]]), max(df[columns[0]]), micro_bins[0] + 1)
+    if len(columns) > 1:
+        micro_edges = sorted(set(np.concatenate((micro_edges, macro_edges))))
     # Calcula el histograma ponderado (usando la columna "wgt") para la columna actual
-    counts, micro_edges = np.histogram(
-        df[columns[0]], bins=micro_bins[0], weights=df["wgt"]
+    counts, _ = np.histogram(
+        df[columns[0]], bins=micro_edges, weights=df["wgt"]
     )
 
     if max(micro_edges) > 1 and columns[0] == "mu":
@@ -567,84 +640,15 @@ def calculate_cumul_micro_macro(
         )  # TODO aca podria ser que ocurre algo raro cuando el df solo contiene 1 elemento.
 
     # Calcula el histograma acumulado normalizado
-    total_count = counts.sum()
-    if total_count > 0:
-        cumul = np.insert(np.cumsum(counts) / total_count, 0, 0)
-    else:
-        cumul = np.zeros(
-            len(counts) + 1
-        )  # TODO hay que ver como cortar el arbol cuando no hay nada en el df.
+    cumul = np.insert(np.cumsum(counts) / counts.sum(), 0, 0)
+  
 
     # Inicializa las listas para guardar resultados
     cumul_list = [cumul]
     micro_list = [micro_edges]
 
-    # Caso base: si solo queda una columna, no se define macro (se termina la recursión)
-    if len(columns) == 1:
-        macro_list = [None]
+    if len(columns) == 1:  
         return cumul_list, micro_list, macro_list
-
-    # -----------------------------------------------------------------------------
-    # 2. Determinación de los bins macro para la columna actual según el tipo de binning
-    # -----------------------------------------------------------------------------
-    if binning_type == "equal_bins":
-        try:
-            if user_defined_macro_edges[0] is not None:
-                macro_edges_aux = sorted(
-                    set(
-                        [min(df[columns[0]]) + abs(min(df[columns[0]]) * 1e-5)]
-                        + user_defined_macro_edges[0]
-                        + [max(df[columns[0]]) + abs(max(df[columns[0]]) * 1e-5)]
-                    )
-                )
-
-                macro_edges_width = np.diff(macro_edges_aux)
-                macro_edges_width = (
-                    macro_edges_width / macro_edges_width.sum() * macro_bins[0]
-                )
-                macro_edges_width = np.array(
-                    [math.ceil(x - 0.1) for x in macro_edges_width]
-                )
-                macro_edges = []
-                for i in range(len(macro_edges_aux) - 1):
-                    start = macro_edges_aux[i]
-                    end = macro_edges_aux[i + 1]
-                    # Genera los puntos del segmento.
-                    seg = np.linspace(start, end, macro_edges_width[i] + 2)
-                    # Si no es el primer segmento, se omite el primer valor para evitar duplicados.
-                    if i > 0:
-                        seg = seg[1:]
-                    macro_edges.append(seg)
-
-                # Concatena todos los segmentos en un solo array
-                macro_edges = np.concatenate(macro_edges)
-
-                # Deleteo variables inecesarias
-                del macro_edges_aux, macro_edges_width, start, end, seg
-            else:
-                # Usando np.histogram para obtener los bordes
-                _, macro_edges = np.histogram(df[columns[0]], bins=macro_bins[0])
-        except ValueError:  # Captura cualquier ValueError
-            print("Se detectó un ValueError. Activando debugger...")
-    elif binning_type == "equal_area":
-        # Usando pd.qcut para obtener cortes que dividan en áreas iguales
-        _, macro_edges = pd.qcut(
-            df[columns[0]],
-            q=macro_bins[0],
-            labels=False,
-            retbins=True,
-            duplicates="drop",
-        )
-    else:
-        raise ValueError(
-            "El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'."
-        )
-
-    # Para solucionar algunos problemas...
-    macro_edges[0] = macro_edges[0] - abs(macro_edges[0]) * 0.1
-    macro_edges[-1] = macro_edges[-1] + abs(macro_edges[-1]) * 0.1
-
-    macro_list = [macro_edges]
 
     # -----------------------------------------------------------------------------
     # 3. División del DataFrame según los bins macro para aplicar recursividad
@@ -870,22 +874,28 @@ def sample(
         return pd.DataFrame(sampled_values, columns=columns)
 
     if len(columns) == 5:
-        for _ in range(N):
+        for i in range(N):
+            if i % 50000 == 0:
+                print(i)
+
             # First dimension
             sampled_0 = np.interp(np.random.rand(), cumul[0], micro[0])
             index_0 = np.searchsorted(macro[0], sampled_0) - 1
+            # print('1')
 
             # Second dimension
             sampled_1 = np.interp(
                 np.random.rand(), cumul[1][index_0], micro[1][index_0]
             )
             index_1 = np.searchsorted(macro[1][index_0], sampled_1) - 1
+            # print('2')
 
             # Third dimension
             sampled_2 = np.interp(
                 np.random.rand(), cumul[2][index_0][index_1], micro[2][index_0][index_1]
             )
             index_2 = np.searchsorted(macro[2][index_0][index_1], sampled_2) - 1
+            # print('3')
 
             # Fourth dimension
             sampled_3 = np.interp(
@@ -893,9 +903,12 @@ def sample(
                 cumul[3][index_0][index_1][index_2],
                 micro[3][index_0][index_1][index_2],
             )
+            if sampled_3 > 1:
+                sampled_3 = 1
             index_3 = (
                 np.searchsorted(macro[3][index_0][index_1][index_2], sampled_3) - 1
             )
+            # print('4')
 
             # Fifth dimension
             sampled_4 = np.interp(
@@ -903,11 +916,13 @@ def sample(
                 cumul[4][index_0][index_1][index_2][index_3],
                 micro[4][index_0][index_1][index_2][index_3],
             )
+            # print('5')
 
             # Append the sampled values
             sampled_values.append(
                 [sampled_0, sampled_1, sampled_2, sampled_3, sampled_4]
             )
+            # print('6')
 
         return pd.DataFrame(sampled_values, columns=columns)
 
