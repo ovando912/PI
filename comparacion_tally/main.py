@@ -24,10 +24,10 @@ factor_normalizacion = df["wgt"].sum() / N_original
 cantidad_registrada = len(df)
 
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
-micro_bins = [3500] * len(columns_order)
+micro_bins = [10000] * len(columns_order)
 # micro_bins = [50000, 40000, 35000,35000,30000]
 macro_bins = [9, 6, 6, 4]
-N_sintetico = 5e6
+N_sintetico = 5e5
 type = "equal_bins"
 
 
@@ -69,9 +69,11 @@ del counts_1d_original, counts_2d_original
 
 used_defined_edges = [
     [2.995732273553991 + 1e-9],
+    # None,
     [-1.5, 1.5],
     [-1.5, 1.5],
     [ 1 - 1e-9],
+    # None,
     None,
 ]
 print("flag 1")
@@ -165,7 +167,7 @@ z_max = int(
 
 # Crear los gráficos
 if geometria[0]:
-    fig, axs = plt.subplots(3, 2, figsize=(18, 6))
+    fig, axs = plt.subplots(3, 2, figsize=(12, 9))
     plt.subplots_adjust(
         left=0.1, right=0.9, top=0.75, bottom=0.1, wspace=0.4, hspace=0.4
     )
