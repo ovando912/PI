@@ -1,0 +1,6 @@
+\babel@toc {portuguese}{}\relax 
+\beamer@sectionintoc {2}{Introdução}{3}{0}{1}
+\beamer@sectionintoc {3}{Figura}{5}{0}{2}
+\beamer@sectionintoc {4}{Código}{7}{0}{3}
+\beamer@sectionintoc {5}{Citação}{9}{0}{4}
+\beamer@sectionintoc {6}{Referências}{11}{0}{5}

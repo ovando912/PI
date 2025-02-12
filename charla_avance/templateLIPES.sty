@@ -1,0 +1,232 @@
+\NeedsTeXFormat{LaTeX2e}[1994/06/01]
+\ProvidesPackage{charla_avance/templateLIPES}
+
+\RequirePackage{lmodern}
+\RequirePackage[T1]{fontenc}
+\RequirePackage[utf8]{inputenc}
+% \RequirePackage[portuges,brazil]{babel}
+\RequirePackage{xcolor,colortbl}
+\RequirePackage{graphicx}
+\RequirePackage{microtype}
+\RequirePackage{hyperref}
+\RequirePackage{subfig}
+\RequirePackage{url}
+\RequirePackage{placeins}
+\RequirePackage{multirow}
+\RequirePackage[figuresright]{rotating}
+\RequirePackage{chemfig}
+\RequirePackage{amsmath}
+\RequirePackage{amssymb}
+\RequirePackage{tabularx}
+\RequirePackage{booktabs}
+\RequirePackage{bigints}
+\RequirePackage{listingsutf8}
+\RequirePackage{etoolbox}
+\RequirePackage[final]{pdfpages}
+\RequirePackage{bigstrut}
+\RequirePackage{beamerthemesplit}
+\RequirePackage{pgfpages}
+% \RequirePackage[brazilian,hyperpageref]{backref}
+\RequirePackage{tikz}
+\RequirePackage{tkz-euclide}
+\RequirePackage{caladea,carlito}
+\RequirePackage{caption}
+\RequirePackage{newfloat}
+\RequirePackage{braket}
+\RequirePackage{minted}
+\setminted{xleftmargin=10pt, linenos, breaklines, breakanywhere}
+\RequirePackage{ragged2e}
+\RequirePackage{array}
+\RequirePackage{tabularx}
+
+\usetikzlibrary{automata, arrows.meta, positioning, shapes}
+
+\DeclareOption{hideSubsectionTitle}{
+    \ifdefined\esconder
+    \else
+        \newcommand{\esconder}{}
+    \fi
+}
+
+\ProcessOptions\relax
+
+\ifdefined\esconder
+    \usetheme{Frankfurt}
+\else
+    \usetheme{Darmstadt}
+\fi
+
+\renewcommand{\familydefault}{\sfdefault}
+
+
+\definecolor{corComentario}{RGB}{150,150,150}
+\definecolor{corString}{RGB}{206,123,0}
+\definecolor{corPalavraChave}{RGB}{0,0,230}
+
+\lstset{
+    inputencoding=utf8/latin1,
+	numbers=left,
+	stepnumber=1,
+	firstnumber=1,
+	numberstyle=\footnotesize,
+	extendedchars=true,
+	breaklines=true,
+	lineskip=0pt,
+	frame=tb,
+	basicstyle=\ttfamily\footnotesize,
+	showstringspaces=false,
+	stringstyle=\color{corString},
+	commentstyle=\color{corComentario},
+	keywordstyle=\color{corPalavraChave}
+}
+
+\newcolumntype{Y}{>{\centering\arraybackslash}X}
+
+\newcommand{\titulo}[1]{\def\@tituloLabel{#1}}
+\newcommand{\subtitulo}[1]{\def\@subtituloLabel{#1}}
+\newcommand{\nome}[1]{\def\@nomeLabel{#1}}
+\newcommand{\autor}[1]{\def\@autorLabel{#1}}
+\newcommand{\orientador}[1]{\def\@orientadorLabel{#1}}
+\newcommand{\coorientador}[1]{\def\@coorientadorLabel{#1}}
+\newcommand{\curso}[1]{\def\@cursoLabel{#1}}
+\newcommand{\local}[1]{\def\@localLabel{#1}}
+\newcommand{\dia}[1]{\def\@diaLabel{#1}}
+\newcommand{\mes}[1]{\def\@mesLabel{#1}}
+\newcommand{\ano}[1]{\def\@anoLabel{#1}}
+
+% configurações do beamer para o template
+\logo{%
+    \begin{tikzpicture}[overlay,remember picture]%
+    \node[left=0cm] at (current page.-27){%
+        \includegraphics[scale=0.08]{imagens/logoLIPES}%
+    };
+    \end{tikzpicture}%
+}
+
+\beamertemplatenavigationsymbolsempty
+\setbeamerfont{page number in head/foot}{size=\normalsize}
+\setbeamertemplate{footline}[frame number]
+
+\definecolor{LIPESEscuro}{RGB}{13, 38, 69}
+\definecolor{LIPESPrimario}{RGB}{11, 109, 222}
+\definecolor{LIPESSecundario}{RGB}{13, 38, 69}
+\definecolor{LIPESTerciario}{RGB}{177, 167, 166}
+\definecolor{LIPESQuaternario}{RGB}{245, 243, 244}
+
+\definecolor{LIPESImportante}{RGB}{164, 22, 26}
+\definecolor{LIPESExemplos}{RGB}{11, 109, 222}
+
+\setbeamercolor*{palette primary}{bg=LIPESPrimario,fg=white}
+\setbeamercolor*{palette secondary}{bg=LIPESSecundario,fg=white}
+\setbeamercolor*{palette tertiary}{bg=LIPESTerciario,fg=white}
+\setbeamercolor*{palette quaternary}{bg=LIPESQuaternario,fg=LIPESPrimario}
+\setbeamercolor{palette sidebar primary}{bg=LIPESPrimario,fg=white}
+\setbeamercolor{palette sidebar secondary}{bg=LIPESSecundario,fg=white}
+\setbeamercolor{palette sidebar tertiary}{bg=LIPESTerciario,fg=white}
+\setbeamercolor{palette sidebar quaternary}{bg=LIPESQuaternario,fg=white}
+\setbeamercolor{structure}{fg=LIPESPrimario}
+\setbeamercolor{section in toc}{fg=black}
+\setbeamercolor{subsection in toc}{fg=LIPESPrimario}
+\setbeamercolor{section in head/foot}{bg=LIPESEscuro,fg=white}
+\setbeamercolor{subsection in head/foot}{bg=LIPESSecundario,fg=white}
+
+\newcommand{\footlinepayoff}[1]{\renewcommand{\@footlinepayoff}{#1}}
+
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\textwidth,ht=5mm,dp=3mm,rightskip=1cm,leftskip=0.25cm]{footline}
+  \insertframenumber/\inserttotalframenumber
+  \ifstrempty{\@footlinepayoff}{}{%
+    \usebeamerfont{footline}\hfill
+  }
+  \end{beamercolorbox}
+}
+
+\setbeamercolor{title}{fg=LIPESPrimario,bg=white}
+\setbeamercolor{author}{fg=black}
+\setbeamercolor{date}{fg=black}
+
+\setbeamerfont{author}{size=\scriptsize}
+\setbeamerfont{date}{size=\tiny}
+\setbeamerfont{title}{series=\bfseries, size=\huge}
+\setbeamerfont{subtitle}{series=\mdseries, size=\Large}
+\setbeamerfont{frametitle}{series=\bfseries}
+\setbeamerfont{framesubtitle}{series=\mdseries}
+\setbeamerfont{footline}{size=\scriptsize}
+%\setbeamerfont{block title}{series=\centering\bfseries}
+
+\setbeamertemplate{blocks}[rounded]
+
+\setbeamertemplate{itemize item}{\textbullet}
+\setbeamertemplate{itemize subitem}{\textemdash}
+\setbeamertemplate{itemize subsubitem}{\ensuremath{\circ}}
+
+\setbeamertemplate{title page}{%
+  \vskip0pt plus 1filll%
+  \hspace{-12mm}
+  \vspace{20mm}
+  \begin{beamercolorbox}[wd=0.8\textwidth,sep=10pt,leftskip=8mm]{title}%
+    {\ifdef{\@tituloLabel}{{\usebeamerfont{title}\@tituloLabel}{\ifdef{\@subtituloLabel}{{\usebeamerfont{title}:}}{}}}{}}
+  
+    {\ifdef{\@subtituloLabel}{{\usebeamerfont{subtitle}\@subtituloLabel}}{}}
+    
+    {\ifdef{\@cursoLabel}{{\usebeamerfont{author}\usebeamercolor[fg]{author}\textbf{Curso: }\@cursoLabel}}{}}
+    
+    {\ifdef{\@nomeLabel}{{\usebeamerfont{author}\usebeamercolor[fg]{author}\@nomeLabel}}{}}
+    
+    % {\ifdef{\@autorLabel}{{\usebeamerfont{author}\usebeamercolor[fg]{author}\textbf{Aluno(a): }\@autorLabel}}{}}
+    \vspace{.3cm}
+    {\ifdef{\@autorLabel}{{\usebeamerfont{author}\usebeamercolor[fg]{author}\textbf{\@autorLabel}}}{}}
+    
+    {\ifdef{\@orientadorLabel}{{\usebeamerfont{author}\usebeamercolor[fg]{author}\textit{Orientador(a): }\textit{\@orientadorLabel}}}{}}
+    
+    {\ifdef{\@coorientadorLabel}{\usebeamerfont{author}\usebeamercolor[fg]{author}\textit{Coorientador(a): }\textit{\@coorientadorLabel}}{}}
+  
+    {\ifdef{\@localLabel}{{\usebeamerfont{date}\usebeamercolor[fg]{date}\@localLabel,{ }\@diaLabel{ }de \@mesLabel{ }de \@anoLabel}}{}}
+  \end{beamercolorbox}
+}
+
+\setbeamercolor{alerted text}{fg=LIPESImportante}
+\setbeamercolor{example text}{fg=LIPESExemplos}
+\setbeamercolor{block title}{bg=LIPESPrimario}
+
+\newenvironment{bloco}[3]{%
+  \setbeamercolor{block body}{#2}
+  \setbeamercolor{block title}{#3}
+  \begin{block}{#1}}{\end{block}}
+
+\DeclareFloatingEnvironment[
+  fileext = qos ,
+  listname = {Lista de Quadros} ,
+  name = Quadro
+]{quadro}
+
+\newcommand{\citeauthorandyear}[1]{\citeauthoronline{#1} (\citeyear{#1})}
+
+% FRAME PARA SECTION
+\newenvironment{sectionframe}[1][]
+{
+  \setbeamercolor{background canvas}{bg=LIPESEscuro}  % Defina a cor de fundo para azul (ou outra cor de sua escolha)
+  \begin{frame}[environment=outlineframe,#1]
+  \LARGE
+  \centering
+  \color{white}
+}
+{
+  \color{black}
+  \end{frame}
+}
+
+% Criar um comando personalizado para exibir a seção com número ajustado
+\newcommand{\adjustedsection}{\number\numexpr\thesection-1\relax}
+
+% CONFIGURAÇÃO PARA CRIAR UM FRAME AUTOMÁTICO AO INÍCIO DE CADA SUBSECTION
+\AtBeginSection[]{
+  \begin{sectionframe}{}
+    \adjustedsection. \insertsection
+  \end{sectionframe}
+}
+
+% remove o ícone das referências
+\setbeamertemplate{bibliography item}{}
+
+\endinput

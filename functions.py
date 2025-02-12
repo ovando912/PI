@@ -267,7 +267,7 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
     # --------------------------------------------------------------------------
     settings = openmc.Settings()
     if len(fuente) == 2:
-        settings.surf_source_write = {"surface_ids": [70], "max_particles": 10000000}
+        settings.surf_source_write = {"surface_ids": [70], "max_particles": 20000000}
     settings.run_mode = "fixed source"
     settings.batches = 100
     settings.particles = int(N_particles / 100)
@@ -298,6 +298,30 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
     tallies = openmc.Tallies(
         [tally_flux_total, tally_flux_vacio] if vacio else [tally_flux_total]
     )
+
+    # Tally: superficie para espectro en vacio
+
+    mesh_total = openmc.RectilinearMesh()
+    mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
+    mesh_total.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
+    mesh_total.z_grid = np.linspace(L_z * 0.99, L_z, 2)
+    if vacio:
+        mesh_vacio = openmc.RectilinearMesh()
+        mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
+        mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
+        mesh_vacio.z_grid = np.linspace(L_z * 0.99, L_z, 2)
+
+    tally_surface = openmc.Tally(name="espectro_total")
+    tally_surface.filters = [openmc.MeshFilter(mesh_total),openmc.EnergyFilter(np.logspace(-3, 7, 75))]
+    tally_surface.scores = ["flux"]
+    tallies.append(tally_surface)
+
+    if vacio:
+        tally_surface = openmc.Tally(name="espectro_vacio")
+        tally_surface.filters = [openmc.MeshFilter(mesh_vacio),openmc.EnergyFilter(np.logspace(-3, 7, 75))]
+        tally_surface.scores = ["flux"]
+        tallies.append(tally_surface)
+
     tallies.export_to_xml()
 
     # --------------------------------------------------------------------------
@@ -894,35 +918,35 @@ def sample(
         part_5 = []
         part_6 = []
         for i in range(N):
-            if i % 50000 == 0:
+            if i % 200000 == 0:
                 print(i)
 
-            start_time = time.time()
+            # start_time = time.time()
             # First dimension
             sampled_0 = np.interp(np.random.rand(), cumul[0], micro[0])
             index_0 = np.searchsorted(macro[0], sampled_0) - 1
             end_time = time.time()
-            part_1.append(end_time - start_time)
+            # part_1.append(end_time - start_time)
 
-            start_time = time.time()
+            # start_time = time.time()
             # Second dimension
             sampled_1 = np.interp(
                 np.random.rand(), cumul[1][index_0], micro[1][index_0]
             )
             index_1 = np.searchsorted(macro[1][index_0], sampled_1) - 1
-            end_time = time.time()
-            part_2.append(end_time - start_time)
+            # end_time = time.time()
+            # part_2.append(end_time - start_time)
 
-            start_time = time.time()
+            # start_time = time.time()
             # Third dimension
             sampled_2 = np.interp(
                 np.random.rand(), cumul[2][index_0][index_1], micro[2][index_0][index_1]
             )
             index_2 = np.searchsorted(macro[2][index_0][index_1], sampled_2) - 1
-            end_time = time.time()
-            part_3.append(end_time - start_time)
+            # end_time = time.time()
+            # part_3.append(end_time - start_time)
 
-            start_time = time.time()
+            # start_time = time.time()
             # Fourth dimension
             sampled_3 = np.interp(
                 np.random.rand(),
@@ -934,33 +958,33 @@ def sample(
             index_3 = (
                 np.searchsorted(macro[3][index_0][index_1][index_2], sampled_3) - 1
             )
-            end_time = time.time()
-            part_4.append(end_time - start_time)
+            # end_time = time.time()
+            # part_4.append(end_time - start_time)
 
-            start_time = time.time()
+            # start_time = time.time()
             # Fifth dimension
             sampled_4 = np.interp(
                 np.random.rand(),
                 cumul[4][index_0][index_1][index_2][index_3],
                 micro[4][index_0][index_1][index_2][index_3],
             )
-            end_time = time.time()
-            part_5.append(end_time - start_time)
+            # end_time = time.time()
+            # part_5.append(end_time - start_time)
 
-            start_time = time.time()
+            # start_time = time.time()
             # Append the sampled values
             sampled_values.append(
                 [sampled_0, sampled_1, sampled_2, sampled_3, sampled_4]
             )
-            end_time = time.time()
-            part_6.append(end_time - start_time)
+            # end_time = time.time()
+            # part_6.append(end_time - start_time)
 
-        print("Part 1: ", np.mean(part_1))
-        print("Part 2: ", np.mean(part_2))
-        print("Part 3: ", np.mean(part_3))
-        print("Part 4: ", np.mean(part_4))
-        print("Part 5: ", np.mean(part_5))
-        print("Part 6: ", np.mean(part_6))
+        # print("Part 1: ", np.mean(part_1))
+        # print("Part 2: ", np.mean(part_2))
+        # print("Part 3: ", np.mean(part_3))
+        # print("Part 4: ", np.mean(part_4))
+        # print("Part 5: ", np.mean(part_5))
+        # print("Part 6: ", np.mean(part_6))
 
         return pd.DataFrame(sampled_values, columns=columns)
 
@@ -1620,6 +1644,7 @@ def plot_correlated_variables_counts(
                 axes[i, j].stairs(counts_1d[i], edges_1d[i], fill=True, color="skyblue")
                 axes[i, j].set_title(f"{col1}")
                 axes[i, j].grid()
+                axes[i,j].set_yscale('log')
             if j > i:
                 axes[i, j].pcolormesh(
                     edges_2d_2[iterator],
@@ -1645,6 +1670,7 @@ def plot_correlated_variables_counts(
 
                 axes[j, i].set_xlim(x_min - x_margin, x_max + x_margin)
                 axes[j, i].set_ylim(y_min - y_margin, y_max + y_margin)
+                axes[j, i].set_yscale('log')
                 iterator += 1
 
             # Set labels
