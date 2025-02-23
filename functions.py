@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import kdsource as kds
 import time
 import os
@@ -13,6 +14,17 @@ from scipy.special import rel_entr
 import glob
 import shutil
 import openmc
+
+plt.rcParams.update({
+    "text.usetex": True,  # Usa LaTeX para el texto
+    "font.family": "serif",  # Fuente tipo serif (similar a LaTeX)
+    "font.serif": ["Computer Modern Roman"],  # Usa Computer Modern
+    "axes.labelsize": 12,  # Tamaño de etiquetas de ejes
+    "font.size": 12,  # Tamaño general de fuente
+    "legend.fontsize": 10,  # Tamaño de fuente en la leyenda
+    "xtick.labelsize": 10,  # Tamaño de fuente en los ticks de x
+    "ytick.labelsize": 10,  # Tamaño de fuente en los ticks de y
+})
 
 # %matplotlib widget
 
