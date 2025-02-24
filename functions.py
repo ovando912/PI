@@ -19,11 +19,11 @@ plt.rcParams.update({
     "text.usetex": True,  # Usa LaTeX para el texto
     "font.family": "serif",  # Fuente tipo serif (similar a LaTeX)
     "font.serif": ["Computer Modern Roman"],  # Usa Computer Modern
-    "axes.labelsize": 12,  # Tamaño de etiquetas de ejes
-    "font.size": 12,  # Tamaño general de fuente
-    "legend.fontsize": 10,  # Tamaño de fuente en la leyenda
-    "xtick.labelsize": 10,  # Tamaño de fuente en los ticks de x
-    "ytick.labelsize": 10,  # Tamaño de fuente en los ticks de y
+    "axes.labelsize": 20,  # Tamaño de etiquetas de ejes
+    "font.size": 20,  # Tamaño general de fuente
+    "legend.fontsize": 18,  # Tamaño de fuente en la leyenda
+    "xtick.labelsize": 18,  # Tamaño de fuente en los ticks de x
+    "ytick.labelsize": 18,  # Tamaño de fuente en los ticks de y
 })
 
 # %matplotlib widget
