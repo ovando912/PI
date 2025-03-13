@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<geometry>
+  <cell id="31" material="16" name="agua" region="152 -153 154 -155 156 -157 (-158 | 159 | -160 | 161 | -156 | 157)" universe="16"/>
+  <cell id="32" material="void" name="vacio" region="158 -159 160 -161 156 -157" universe="16"/>
+  <surface boundary="vacuum" coeffs="-7.5" id="152" type="x-plane"/>
+  <surface boundary="vacuum" coeffs="7.5" id="153" type="x-plane"/>
+  <surface boundary="vacuum" coeffs="-7.5" id="154" type="y-plane"/>
+  <surface boundary="vacuum" coeffs="7.5" id="155" type="y-plane"/>
+  <surface boundary="vacuum" coeffs="29.999999" id="156" type="z-plane"/>
+  <surface boundary="vacuum" coeffs="100" id="157" type="z-plane"/>
+  <surface coeffs="-1.5" id="158" type="x-plane"/>
+  <surface coeffs="1.5" id="159" type="x-plane"/>
+  <surface coeffs="-1.5" id="160" type="y-plane"/>
+  <surface coeffs="1.5" id="161" type="y-plane"/>
+</geometry>

@@ -10,23 +10,255 @@ from PIL import Image, ImageDraw, ImageFont
 from scipy.stats import entropy
 from scipy.stats import wasserstein_distance
 from scipy.special import rel_entr
+from matplotlib.colors import LogNorm
 
+import xml.etree.ElementTree as ET
+import xml.dom.minidom
 import glob
 import shutil
 import openmc
+import subprocess
 
-plt.rcParams.update({
-    "text.usetex": True,  # Usa LaTeX para el texto
-    "font.family": "serif",  # Fuente tipo serif (similar a LaTeX)
-    "font.serif": ["Computer Modern Roman"],  # Usa Computer Modern
-    "axes.labelsize": 20,  # Tamaño de etiquetas de ejes
-    "font.size": 20,  # Tamaño general de fuente
-    "legend.fontsize": 18,  # Tamaño de fuente en la leyenda
-    "xtick.labelsize": 18,  # Tamaño de fuente en los ticks de x
-    "ytick.labelsize": 18,  # Tamaño de fuente en los ticks de y
-})
+plt.rcParams.update(
+    {
+        "text.usetex": True,  # Usa LaTeX para el texto
+        "font.family": "serif",  # Fuente tipo serif (similar a LaTeX)
+        "font.serif": ["Computer Modern Roman"],  # Usa Computer Modern
+        "axes.labelsize": 20,  # Tamaño de etiquetas de ejes
+        "font.size": 20,  # Tamaño general de fuente
+        "legend.fontsize": 18,  # Tamaño de fuente en la leyenda
+        "xtick.labelsize": 18,  # Tamaño de fuente en los ticks de x
+        "ytick.labelsize": 18,  # Tamaño de fuente en los ticks de y
+        "font.weight": "bold",  # Fuente en negrita
+        "axes.titleweight": "bold",  # Títulos de ejes en negrita
+    }
+)
+
 
 # %matplotlib widget
+class TreeNode:
+    def __init__(self, cumul, micro, macro):
+        self.children = []
+        self.cumul = np.array(cumul) if cumul is not None else None
+        self.micro = np.array(micro) if micro is not None else None
+        self.macro = np.array(macro) if macro is not None else None
+
+    def add_child(self, child):
+        self.children.append(child)
+
+    def to_xml(self):
+        node_elem = ET.Element("node")
+
+        # Guardar los tres vectores en XML (si es None, guardamos "None")
+        for name, vec in zip(
+            ["cumul", "micro", "macro"], [self.cumul, self.micro, self.macro]
+        ):
+            vec_elem = ET.SubElement(node_elem, name)
+            if vec is not None:
+                vec_elem.text = ",".join(map(str, vec))
+            else:
+                vec_elem.text = "None"  # Guardamos "None" explícitamente en el XML
+
+        # Guardar los hijos
+        for child in self.children:
+            node_elem.append(child.to_xml())
+
+        return node_elem
+
+    def save_to_xml(self, filename="tree.xml", config=None):
+        # Creamos el nodo raíz
+        tree_elem = ET.Element("tree")
+
+        # Si se proporciona configuración, la agregamos como un subnodo
+        if config is not None:
+            config_elem = ET.SubElement(tree_elem, "configuracion")
+            for key, value in config.items():
+                key_elem = ET.SubElement(config_elem, key)
+                key_elem.text = config_value_to_string(key, value)
+
+        # Agregamos el árbol principal
+        tree_elem.append(self.to_xml())
+
+        # Convertir el árbol a string con formato
+        xml_string = ET.tostring(tree_elem, encoding="utf-8")
+        dom = xml.dom.minidom.parseString(xml_string)
+        pretty_xml = dom.toprettyxml(indent="  ")
+
+        # Guardar en archivo
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(pretty_xml)
+
+
+def config_value_to_string(key, value):
+    # Si es una lista, la convertimos manualmente
+    if isinstance(value, list):
+        if key == "geometria":
+            # Convierte cada elemento: si es booleano, lo convierte a 1 (o 0 si fuera False), y lo une con comas
+            return ", ".join(
+                str(int(item)) if isinstance(item, bool) else str(item)
+                for item in value
+            )
+        else:
+            # Para otras listas, simplemente las une con comas
+            return ", ".join(str(item) for item in value)
+    else:
+        return str(value)
+
+
+def calculate_cumul_micro_macro_nodo(
+    df: pd.DataFrame,
+    columns: list,
+    micro_bins: list,
+    macro_bins: list,
+    binning_type: str = "equal_bins",
+    user_defined_macro_edges: list = None,
+) -> TreeNode:
+    """ """
+    # -----------------------------------------------------------------------------
+    # 1. Determinación de casos triviales
+    # -----------------------------------------------------------------------------
+    if len(df) == 0:
+        return TreeNode(None, None, None)
+
+    min_df, max_df = min(df[columns[0]]), max(df[columns[0]])
+
+    if min_df == max_df:
+        # Caso base: si solo queda una columna, no se define macro (se termina la recursión)
+        if len(columns) == 1:
+            macro_edges = None
+        else:
+            macro_edges = np.array([min_df - 1, min_df + 1])
+        micro_edges = np.array([min_df])
+        cumul = np.array([1])
+
+    # -----------------------------------------------------------------------------
+    # 2. A partir de aca el df tiene por lo menos 2 valores distintos
+    # -----------------------------------------------------------------------------
+    else:
+        # Caso base: si solo queda una columna, no se define macro (se termina la recursión)
+        if len(columns) == 1:
+            macro_edges = None
+
+        # -----------------------------------------------------------------------------
+        # 3. Determinación de los bins macro para la columna actual según el tipo de binning
+        # -----------------------------------------------------------------------------
+        elif binning_type == "equal_bins":
+            if user_defined_macro_edges[0] is not None:
+                macro_edges_aux = (
+                    [min_df]
+                    + [x for x in user_defined_macro_edges[0] if min_df < x < max_df]
+                    + [max_df]
+                )
+            else:
+                macro_edges_aux = [min_df] + [max_df]
+            macro_edges_width = np.diff(macro_edges_aux)
+            macro_edges_width = (
+                macro_edges_width / macro_edges_width.sum() * macro_bins[0]
+            )
+            macro_edges_width = np.array(
+                [math.ceil(x - 0.1) for x in macro_edges_width]
+            )
+
+            macro_edges = []
+            for i in range(len(macro_edges_aux) - 1):
+                start = macro_edges_aux[i]
+                end = macro_edges_aux[i + 1]
+                # Genera los puntos del segmento.
+                seg = np.linspace(start, end, macro_edges_width[i] + 2)
+                # Si no es el primer segmento, se omite el primer valor para evitar duplicados.
+                if i > 0:
+                    seg = seg[1:]
+                macro_edges.append(seg)
+
+            # Concatena todos los segmentos en un solo array
+            macro_edges = np.concatenate(macro_edges)
+
+            # Deleteo variables inecesarias
+            del macro_edges_aux, macro_edges_width, start, end, seg, min_df, max_df
+
+        elif binning_type == "equal_area":
+            # Usando pd.qcut para obtener cortes que dividan en áreas iguales
+            _, macro_edges = pd.qcut(
+                df[columns[0]],
+                q=macro_bins[0],
+                labels=False,
+                retbins=True,
+                duplicates="drop",
+            )
+
+        else:
+            raise ValueError(
+                "El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'."
+            )
+
+        # -----------------------------------------------------------------------------
+        # 4. Procesamiento micro
+        # -----------------------------------------------------------------------------
+        micro_edges = np.linspace(
+            min(df[columns[0]]), max(df[columns[0]]), micro_bins[0] + 1
+        )
+        if len(columns) > 1:
+            micro_edges = np.array(
+                sorted(set(np.concatenate((micro_edges, macro_edges[1:-1]))))
+            )
+        # Calcula el histograma ponderado (usando la columna "wgt") para la columna actual
+        counts, _ = np.histogram(df[columns[0]], bins=micro_edges, weights=df["wgt"])
+
+        # Calcula el histograma acumulado normalizado
+        cumul = np.insert(np.cumsum(counts) / counts.sum(), 0, 0)
+
+        # Encontrar dónde cambian los valores
+        diffs = np.diff(cumul)
+        change_indices = np.where(diffs != 0)[0]  # Índices donde cambia
+
+        # Agregar primeros y últimos índices de cada grupo
+        first_indices = np.insert(change_indices + 1, 0, 0)  # Primeros de cada grupo
+        last_indices = np.append(
+            change_indices, len(cumul) - 1
+        )  # Últimos de cada grupo
+
+        # Unir y ordenar los índices
+        selected_indices = np.unique(np.concatenate((first_indices, last_indices)))
+
+        # Filtrar los arrays
+        micro_edges = micro_edges[selected_indices]
+        cumul = cumul[selected_indices]
+
+    # Guardo los resultados en un nuevo nodo
+    nodo = TreeNode(cumul, micro_edges, macro_edges)
+
+    if len(columns) == 1:
+        return nodo
+
+    # -----------------------------------------------------------------------------
+    # 3. División del DataFrame según los bins macro para aplicar recursividad
+    # -----------------------------------------------------------------------------
+    # Asigna cada fila del DataFrame al bin correspondiente de acuerdo a macro_edges
+    bin_indices = np.digitize(df[columns[0]], bins=macro_edges) - 1
+
+    # Procesa recursivamente cada subgrupo definido por los bins macro
+    for bin_idx in range(len(macro_edges) - 1):
+        # Filtra las filas que caen en el bin actual
+        if bin_idx == len(macro_edges) - 2:
+            # Última iteración: incluir bin_idx y bin_idx+1
+            df_filtered = df[(bin_indices == bin_idx) | (bin_indices == bin_idx + 1)]
+        else:
+            df_filtered = df[bin_indices == bin_idx]
+
+        # Llama recursivamente para las columnas restantes
+        nodo_hijo = calculate_cumul_micro_macro_nodo(
+            df_filtered,
+            columns[1:],
+            micro_bins[1:],
+            macro_bins[1:],
+            binning_type,
+            user_defined_macro_edges[1:],
+        )
+
+        # Agrega el nodo hijo al nodo actual
+        nodo.add_child(nodo_hijo)
+
+    return nodo
 
 
 def function(df1: pd.DataFrame, df2: pd.DataFrame):
@@ -36,12 +268,14 @@ def function(df1: pd.DataFrame, df2: pd.DataFrame):
     macro_bins = [6, 3, 3, 3]
     type = "equal_bins"
 
-    cumul, micro, macro = calculate_cumul_micro_macro(df1, columns_order, micro_bins, macro_bins, type)
+    cumul, micro, macro = calculate_cumul_micro_macro(
+        df1, columns_order, micro_bins, macro_bins, type
+    )
 
     extremos_variables = []
     for column in columns_order:
         extremos_variables.append([df1[column].min(), df1[column].max()])
-    
+
     bins = 100
     resultados = []
     for i in range(len(columns_order)):
@@ -49,23 +283,18 @@ def function(df1: pd.DataFrame, df2: pd.DataFrame):
         for _ in columns_order:
             resultados[i].append([])
 
-    
     for i in range(len(columns_order)):
-        for j in range(i+1):
+        for j in range(i + 1):
             if i == j:
                 resultados[i][j] = np.zeros(bins)
             else:
                 resultados[i][j] = np.zeros((bins, bins))
 
-    
 
-
-
-
-def df_from_source_file(source_file: str, N_original: int, df_size: int = None) -> tuple[pd.DataFrame, float, int]:
-    SurfaceSourceFile = kds.SurfaceSourceFile(
-        source_file, domain={"w": [0, 2]}
-    )
+def df_from_source_file(
+    source_file: str, N_original: int, df_size: int = None
+) -> tuple[pd.DataFrame, float, int]:
+    SurfaceSourceFile = kds.SurfaceSourceFile(source_file, domain={"w": [0, 2]})
     df = SurfaceSourceFile.get_pandas_dataframe()
     df = df[["x", "y", "ln(E0/E)", "mu", "phi", "wgt"]]
     del SurfaceSourceFile
@@ -127,7 +356,14 @@ def format_df_to_MCPL(
     return df_result
 
 
-def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -> None:
+def generate_filename(base_filename: str, value: int) -> str:
+    if not (base_filename.endswith(".mcpl") or base_filename.endswith(".h5")):
+        raise ValueError("El nombre del archivo debe terminar en .mcpl o .h5")
+    base_name, extension = os.path.splitext(base_filename)
+    return f"{base_name}{value}{extension}"
+
+
+def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, outfile_name: str = None) -> None:
     """
     Ejecuta una simulación en OpenMC con la configuración especificada.
 
@@ -344,6 +580,9 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
     tally_flux_total = openmc.Tally(name="flux_total")
     tally_flux_total.filters = [mesh_filter]
     tally_flux_total.scores = ["flux"]
+    # Normalizar por el volumen de las celdas de la malla
+    tally_flux_total.scoring = "flux"
+    tally_flux_total.numbers = "volume"  # Normalización por volumen
 
     # Tally: malla para flujo en vacio
     if vacio:
@@ -373,13 +612,19 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
         mesh_vacio.z_grid = np.linspace(L_z * 0.99, L_z, 2)
 
     tally_surface = openmc.Tally(name="espectro_total")
-    tally_surface.filters = [openmc.MeshFilter(mesh_total),openmc.EnergyFilter(np.logspace(-3, 7, 75))]
+    tally_surface.filters = [
+        openmc.MeshFilter(mesh_total),
+        openmc.EnergyFilter(np.logspace(-3, 7, 75)),
+    ]
     tally_surface.scores = ["flux"]
     tallies.append(tally_surface)
 
     if vacio:
         tally_surface = openmc.Tally(name="espectro_vacio")
-        tally_surface.filters = [openmc.MeshFilter(mesh_vacio),openmc.EnergyFilter(np.logspace(-3, 7, 75))]
+        tally_surface.filters = [
+            openmc.MeshFilter(mesh_vacio),
+            openmc.EnergyFilter(np.logspace(-3, 7, 75)),
+        ]
         tally_surface.scores = ["flux"]
         tallies.append(tally_surface)
 
@@ -398,7 +643,7 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int) -
     # Mover archivos de salida según tipo de fuente
     statepoint_files = glob.glob("statepoint.*.h5")
     nuevo_nombre = (
-        "statepoint_original.h5" if len(fuente) == 2 else "statepoint_sintetico.h5"
+        "statepoint_original.h5" if len(fuente) == 2 else "statepoint_sintetico.h5" if outfile_name is None else outfile_name
     )
     for file in statepoint_files:
         shutil.move(file, nuevo_nombre)
@@ -459,9 +704,9 @@ def calculate_cumul_micro_macro(
         if len(columns) == 1:
             macro_edges = None
 
-    # -----------------------------------------------------------------------------
-    # 3. Determinación de los bins macro para la columna actual según el tipo de binning
-    # -----------------------------------------------------------------------------
+        # -----------------------------------------------------------------------------
+        # 3. Determinación de los bins macro para la columna actual según el tipo de binning
+        # -----------------------------------------------------------------------------
         elif binning_type == "equal_bins":
             if user_defined_macro_edges[0] is not None:
                 macro_edges_aux = (
@@ -511,14 +756,16 @@ def calculate_cumul_micro_macro(
                 "El parámetro 'binning_type' debe ser 'equal_bins' o 'equal_area'."
             )
 
-    # -----------------------------------------------------------------------------
-    # 4. Procesamiento micro
-    # -----------------------------------------------------------------------------
+        # -----------------------------------------------------------------------------
+        # 4. Procesamiento micro
+        # -----------------------------------------------------------------------------
         micro_edges = np.linspace(
             min(df[columns[0]]), max(df[columns[0]]), micro_bins[0] + 1
         )
         if len(columns) > 1:
-            micro_edges = np.array(sorted(set(np.concatenate((micro_edges, macro_edges[1: -1])))))
+            micro_edges = np.array(
+                sorted(set(np.concatenate((micro_edges, macro_edges[1:-1]))))
+            )
         # Calcula el histograma ponderado (usando la columna "wgt") para la columna actual
         counts, _ = np.histogram(df[columns[0]], bins=micro_edges, weights=df["wgt"])
 
@@ -531,7 +778,9 @@ def calculate_cumul_micro_macro(
 
         # Agregar primeros y últimos índices de cada grupo
         first_indices = np.insert(change_indices + 1, 0, 0)  # Primeros de cada grupo
-        last_indices = np.append(change_indices, len(cumul) - 1)  # Últimos de cada grupo
+        last_indices = np.append(
+            change_indices, len(cumul) - 1
+        )  # Últimos de cada grupo
 
         # Unir y ordenar los índices
         selected_indices = np.unique(np.concatenate((first_indices, last_indices)))
@@ -785,10 +1034,6 @@ def plot_correlated_variables(
     columns: list,  # Por ahora todos tienen los mismos bines
     bin_size_diagonal: int = 100,
     bin_size_off_diagonal: int = 100,
-    save: bool = False,
-    plot: bool = True,
-    density: bool = True,
-    weight=True,
     filename: str = "correlated_histograms.png",
 ) -> None:
 
@@ -799,29 +1044,33 @@ def plot_correlated_variables(
         for j, col2 in enumerate(columns):
             if i == j:
                 # Diagonal plots: Plot histograms when col1 == col2
-                if density:
-                    df[col1].plot(
-                        kind="hist",
-                        ax=axes[i, j],
-                        bins=bin_size_diagonal,
-                        color="skyblue",
-                        title=f"{col1}",
-                        density=True,
-                    )
-                else:
-                    df[col1].plot(
-                        kind="hist",
-                        ax=axes[i, j],
-                        bins=bin_size_diagonal,
-                        color="skyblue",
-                        title=f"{col1}",
-                    )
+                counts, edges = np.histogram(
+                    df[col1], bins=bin_size_diagonal, weights=df["wgt"]
+                )
+                axes[i, j].bar(
+                    edges[:-1], counts, width=np.diff(edges), color="skyblue"
+                )
+                axes[i, j].set_title(f"{col1}")
+                axes[i, j].set_yscale("log")
             else:
                 # Off-diagonal plots: 2D histograms (heatmap-like) for col1 vs col2
                 axes[i, j].hist2d(
-                    df[col2], df[col1], bins=bin_size_off_diagonal, cmap="Blues"
+                    df[col2],
+                    df[col1],
+                    bins=bin_size_off_diagonal,
+                    cmap="Blues",
+                    norm=LogNorm(),
+                    weights=df["wgt"],
                 )
                 axes[i, j].set_title(f"{col1} vs {col2}")
+                minimo = min(df[col2])
+                maximo = max(df[col2])
+                intervalo = (maximo - minimo)/10
+                axes[i, j].set_xlim([minimo - intervalo, maximo + intervalo])
+                minimo = min(df[col1])
+                maximo = max(df[col1])
+                intervalo = (maximo - minimo)/10
+                axes[i, j].set_ylim([minimo - intervalo, maximo + intervalo])
             # Set labels
             if i == len(columns) - 1:
                 axes[i, j].set_xlabel(col2)
@@ -831,11 +1080,7 @@ def plot_correlated_variables(
     plt.tight_layout()  # Adjust layout to prevent overlap
 
     # Save the figure as a PNG file
-    if save:
-        plt.savefig(filename, dpi=300)
-
-    if plot:
-        plt.show()
+    plt.savefig(filename, dpi=300)
 
 
 def plot_results_barrido(
@@ -1411,7 +1656,7 @@ def plot_correlated_variables_counts(
                 axes[i, j].stairs(counts_1d[i], edges_1d[i], fill=True, color="skyblue")
                 axes[i, j].set_title(f"{col1}")
                 axes[i, j].grid()
-                axes[i,j].set_yscale('log')
+                axes[i, j].set_yscale("log")
             if j > i:
                 axes[i, j].pcolormesh(
                     edges_2d_2[iterator],
@@ -1437,7 +1682,7 @@ def plot_correlated_variables_counts(
 
                 axes[j, i].set_xlim(x_min - x_margin, x_max + x_margin)
                 axes[j, i].set_ylim(y_min - y_margin, y_max + y_margin)
-                axes[j, i].set_yscale('log')
+                axes[j, i].set_yscale("log")
                 iterator += 1
 
             # Set labels
@@ -1795,4 +2040,3 @@ def combine_images(num_folders: int, image_name: str = "1000000.png"):
 
     # Free up resources
     combined_img.close()
-

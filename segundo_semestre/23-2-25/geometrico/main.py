@@ -19,7 +19,7 @@ fuente_original = ["monoenergetica", "colimada"]
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
 micro_bins = [500] * len(columns_order)
 # micro_bins = [50000, 40000, 35000,35000,30000]
-macro_bins = [5, 3, 3, 3]
+macro_bins = [7, 5, 5, 5]
 N_sintetico = 1e7
 N_file = int(
     5e6
@@ -28,12 +28,12 @@ batches = 30
 type = "equal_bins"
 
 used_defined_edges = [
-    # [2.995732273553991 + 1e-9],
-    None,
+    [2.995732273553991 + 1e-9],
+    # None,
     [-1.5, 1.5],
     [-1.5, 1.5],
-    # [1 - 1e-9],
-    None,
+    [1 - 1e-9],
+    # None,
     None,
 ]
 
