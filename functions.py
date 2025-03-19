@@ -363,7 +363,9 @@ def generate_filename(base_filename: str, value: int) -> str:
     return f"{base_name}{value}{extension}"
 
 
-def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, outfile_name: str = None) -> None:
+def run_simulation(
+    fuente: list, geometria: list, z0: float, N_particles: int, outfile_name: str = None
+) -> None:
     """
     Ejecuta una simulación en OpenMC con la configuración especificada.
 
@@ -569,6 +571,20 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, o
     settings.batches = 100
     settings.particles = int(N_particles / 100)
     settings.source = source
+
+    # Define weight window spatial mesh
+    ww_mesh = openmc.RegularMesh()
+    ww_mesh.dimension = (10, 10, 10)
+    ww_mesh.lower_left = (-geometria[1] / 2, -geometria[2] / 2, 0.0)
+    ww_mesh.upper_right = (geometria[1] / 2, geometria[2] / 2, geometria[3])
+
+    # Create weight window object and adjust parameters
+    wwg = openmc.WeightWindowGenerator(
+        method="magic", mesh=ww_mesh, max_realizations=settings.batches
+    )
+
+    # Add generator to Settings instance
+    settings.weight_window_generators = wwg
     settings.export_to_xml()
 
     # Tally: malla para flujo total
@@ -599,7 +615,7 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, o
         [tally_flux_total, tally_flux_vacio] if vacio else [tally_flux_total]
     )
 
-    # Tally: superficie para espectro en vacio
+    # Tally: superficie para espectro en 1m
 
     mesh_total = openmc.RectilinearMesh()
     mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
@@ -611,7 +627,7 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, o
         mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
         mesh_vacio.z_grid = np.linspace(L_z * 0.99, L_z, 2)
 
-    tally_surface = openmc.Tally(name="espectro_total")
+    tally_surface = openmc.Tally(name="espectro_total_1m")
     tally_surface.filters = [
         openmc.MeshFilter(mesh_total),
         openmc.EnergyFilter(np.logspace(-3, 7, 75)),
@@ -620,7 +636,36 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, o
     tallies.append(tally_surface)
 
     if vacio:
-        tally_surface = openmc.Tally(name="espectro_vacio")
+        tally_surface = openmc.Tally(name="espectro_vacio_1m")
+        tally_surface.filters = [
+            openmc.MeshFilter(mesh_vacio),
+            openmc.EnergyFilter(np.logspace(-3, 7, 75)),
+        ]
+        tally_surface.scores = ["flux"]
+        tallies.append(tally_surface)
+
+        # Tally: superficie para espectro en 0.5m
+
+    mesh_total = openmc.RectilinearMesh()
+    mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
+    mesh_total.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
+    mesh_total.z_grid = np.linspace(L_z * 0.49, L_z * 0.5, 2)
+    if vacio:
+        mesh_vacio = openmc.RectilinearMesh()
+        mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
+        mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
+        mesh_vacio.z_grid = np.linspace(L_z * 0.49, L_z * 5, 2)
+
+    tally_surface = openmc.Tally(name="espectro_total_05m")
+    tally_surface.filters = [
+        openmc.MeshFilter(mesh_total),
+        openmc.EnergyFilter(np.logspace(-3, 7, 75)),
+    ]
+    tally_surface.scores = ["flux"]
+    tallies.append(tally_surface)
+
+    if vacio:
+        tally_surface = openmc.Tally(name="espectro_vacio_05m")
         tally_surface.filters = [
             openmc.MeshFilter(mesh_vacio),
             openmc.EnergyFilter(np.logspace(-3, 7, 75)),
@@ -643,7 +688,9 @@ def run_simulation(fuente: list, geometria: list, z0: float, N_particles: int, o
     # Mover archivos de salida según tipo de fuente
     statepoint_files = glob.glob("statepoint.*.h5")
     nuevo_nombre = (
-        "statepoint_original.h5" if len(fuente) == 2 else "statepoint_sintetico.h5" if outfile_name is None else outfile_name
+        "statepoint_original.h5"
+        if len(fuente) == 2
+        else "statepoint_sintetico.h5" if outfile_name is None else outfile_name
     )
     for file in statepoint_files:
         shutil.move(file, nuevo_nombre)
@@ -1065,11 +1112,11 @@ def plot_correlated_variables(
                 axes[i, j].set_title(f"{col1} vs {col2}")
                 minimo = min(df[col2])
                 maximo = max(df[col2])
-                intervalo = (maximo - minimo)/10
+                intervalo = (maximo - minimo) / 10
                 axes[i, j].set_xlim([minimo - intervalo, maximo + intervalo])
                 minimo = min(df[col1])
                 maximo = max(df[col1])
-                intervalo = (maximo - minimo)/10
+                intervalo = (maximo - minimo) / 10
                 axes[i, j].set_ylim([minimo - intervalo, maximo + intervalo])
             # Set labels
             if i == len(columns) - 1:

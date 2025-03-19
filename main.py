@@ -2,10 +2,12 @@ import sys
 
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
+path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-17-25"
 
-path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-12-25"
+if not os.path.exists(path):
+    os.makedirs(path)
 source_path = (
-    "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/sources/source1/"
+    "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/sources/source2/"
 )
 os.chdir(path)
 
@@ -15,7 +17,7 @@ geometria = [True, 15, 15, 100, 3, 3]
 z0 = 30
 fuente_original = ["monoenergetica", "colimada"]
 
-N_original = int(4.5e8)
+N_original = int(1e6)
 
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
 micro_bins = [500] * len(columns_order)

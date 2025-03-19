@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<settings>
+  <run_mode>fixed source</run_mode>
+  <particles>500</particles>
+  <batches>100</batches>
+  <source file="/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-17-25/sint_source2.h5" strength="1.0" type="file"/>
+  <weight_window_generators>
+    <weight_windows_generator>
+      <mesh>1</mesh>
+      <particle_type>neutron</particle_type>
+      <max_realizations>100</max_realizations>
+      <update_interval>1</update_interval>
+      <on_the_fly>true</on_the_fly>
+      <method>magic</method>
+    </weight_windows_generator>
+  </weight_window_generators>
+  <mesh id="1">
+    <dimension>10 10 10</dimension>
+    <lower_left>-7.5 -7.5 0.0</lower_left>
+    <upper_right>7.5 7.5 100</upper_right>
+  </mesh>
+</settings>

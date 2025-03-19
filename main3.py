@@ -3,7 +3,7 @@ import sys
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
-path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-12-25"
+path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-17-25"
 os.chdir(path)
 
 flujo_total_sintetico = None
@@ -11,7 +11,7 @@ flujo_vacio_sintetico = None
 espectro_total_sintetico = None
 espectro_vacio_sintetico = None
 
-batches = 2
+batches = 4
 
 for i in range(batches):
     # Load the statepoint file sintetico por batch
@@ -24,7 +24,7 @@ for i in range(batches):
         flujo_total_sintetico = np.zeros_like(aux)
     flujo_total_sintetico += aux
 
-    tally_total = sp.get_tally(name="espectro_total")
+    tally_total = sp.get_tally(name="espectro_total_1m")
     df_sintetico_espectro_total = tally_total.get_pandas_dataframe()
     df_sintetico_espectro_total.columns = [
         "x",
@@ -60,7 +60,7 @@ for i in range(batches):
             flujo_vacio_sintetico = np.zeros_like(aux)
         flujo_vacio_sintetico += aux
 
-        tally_vacio = sp.get_tally(name="espectro_vacio")
+        tally_vacio = sp.get_tally(name="espectro_vacio_1m")
         df_sintetico_espectro_vacio = tally_vacio.get_pandas_dataframe()
         df_sintetico_espectro_vacio.columns = [
             "x",
