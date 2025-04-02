@@ -3,7 +3,7 @@ import sys
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
-path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-17-25"
+path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-19-25"
 os.chdir(path)
 
 flujo_total_sintetico = None

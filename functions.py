@@ -306,8 +306,7 @@ def df_from_source_file(
             df = df.iloc[base : base + df_size]
 
     factor_normalizacion = df["wgt"].sum() / N_original
-    cantidad_registrada = len(df)
-    return df, factor_normalizacion, int(cantidad_registrada)
+    return df, factor_normalizacion
 
 
 def format_df_to_MCPL(
@@ -363,58 +362,98 @@ def generate_filename(base_filename: str, value: int) -> str:
     return f"{base_name}{value}{extension}"
 
 
-def run_simulation(
-    fuente: list, geometria: list, z0: float, N_particles: int, outfile_name: str = None
+class SimulationConfig:
+    def __init__(
+        self,
+        geometria,
+        z0,
+        z_track,
+        fuente,
+        z_for_spectral_tally,
+        num_particles,
+        WW,
+        folder,
+        statepoint_name,
+        trackfile_name,
+    ):
+        self.geometria = geometria
+        self.z0 = z0
+        self.z_track = z_track
+        self.fuente = fuente
+        self.z_for_spectral_tally = z_for_spectral_tally
+        self.num_particles = num_particles
+        self.WW = WW
+        self.folder = folder
+        self.statepoint_name = statepoint_name
+        self.trackfile_name = trackfile_name
+
+
+def run_simulation(config: SimulationConfig
+    # fuente: list, geometria: list, z0: float, z_track:float, N_particles: int,z_for_spectral_tally:list=None, outfile_name: str = None, WW = False,folder = None
 ) -> None:
     """
     Ejecuta una simulación en OpenMC con la configuración especificada.
 
     Parámetros:
-      fuente (list):
-          - Si tiene 1 elemento: se asume que es la ruta a un archivo de fuente.
-          - Si tiene 2 elementos: se asume que es [fuente_energia, fuente_direccion] para fuente independiente.
-              - fuente_energia puede ser:
-                  - "monoenergetica": Fuente con energía fija.
-                  - "espectro_fision": Fuente con espectro de fisión.
-                  - "espectro_termico": Fuente con espectro térmico.
-              - fuente_direccion puede ser:
-                  - "colimada": Fuente con dirección fija.
-                  - "isotropica": Fuente con distribución isotrópica.
+        fuente (list):
+            - Si tiene 1 elemento: se asume que es la ruta a un archivo de fuente.
+            - Si tiene 2 elementos: se asume que es [fuente_energia, fuente_direccion] para fuente independiente.
+                - fuente_energia puede ser:
+                    - "monoenergetica": Fuente con energía fija.
+                    - "espectro_fision": Fuente con espectro de fisión.
+                    - "espectro_termico": Fuente con espectro térmico.
+                - fuente_direccion puede ser:
+                    - "colimada": Fuente con dirección fija.
+                    - "isotropica": Fuente con distribución isotrópica.
 
-      geometria (list): Parámetros geométricos:
-          - geometria[0] (bool): Flag para indicar si existe región de vacío.
-          - geometria[1] (float): L_x, ancho del paralelepípedo.
-          - geometria[2] (float): L_y, ancho del paralelepípedo.
-          - geometria[3] (float): L_z, altura del paralelepípedo.
-          - Si geometria[0] es True, se esperan además:
+        geometria (list): Parámetros geométricos:
+            - geometria[0] (bool): Flag para indicar si existe región de vacío.
+            - geometria[1] (float): L_x, ancho del paralelepípedo.
+            - geometria[2] (float): L_y, ancho del paralelepípedo.
+            - geometria[3] (float): L_z, altura del paralelepípedo.
+            - Si geometria[0] es True, se esperan además:
                 - geometria[4] (float): L_x_vacio.
                 - geometria[5] (float): L_y_vacio.
 
-      z0 (float): Posición en z para la superficie de track.
-      N_particles (int): Número de partículas a simular en total.
+        z0 (float): Posición en z donde empieza la simulación.
+        z_track (float): Posición en z para la superficie de track.
+        N_particles (int): Número de partículas a simular en total.
+        outfile_name (str): Nombre del archivo de salida. Si es None, se usa el nombre por defecto.
+        WW (bool): Si se activa, se generan weight windows.
     """
-
-    # Configuración de secciones de reacción
+    # ---------------------------------------------------------------------------------------------------------------------------------------
+    # Configuración de secciones eficaces
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     openmc.config["cross_sections"] = (
         "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
     )
 
-    # --------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------------------------------------------------
+    # Configuración de la carpeta de trabajo
+    # ---------------------------------------------------------------------------------------------------------------------------------------
+    # Si se especifica una carpeta, se crea y se cambia a esa carpeta. Si no, se usa la carpeta actual.
+    if config.folder is not None:
+        if not os.path.exists(config.folder):
+            os.makedirs(config.folder)
+        os.chdir(config.folder)   
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------
     # Procesamiento de la fuente
-    # --------------------------------------------------------------------------
-    if len(fuente) == 1:
-        source_file = fuente[0]
-        source = openmc.FileSource(source_file)
-    elif len(fuente) == 2:
-        fuente_energia, fuente_direccion = fuente
+    # ----------------------------------------------------------------------------------------------------------------------------------------
+    # Si la longitud de la fuente es 1, se asume que es un archivo de fuente.
+    # Si la longitud de la fuente es 2, se asume que es una fuente independiente.
+    if len(config.fuente) == 1:
+        source = openmc.FileSource(config.fuente[0])
+    elif len(config.fuente) == 2:
+        fuente_energia, fuente_direccion = config.fuente
         source = openmc.IndependentSource()
         source.particle = "neutron"
 
         # Distribución espacial: se coloca en la región central de la geometría
-        L_x, L_y = geometria[1], geometria[2]
+        L_x, L_y = config.geometria[1], config.geometria[2]
         x_dist = openmc.stats.Uniform(-L_x / 2, L_x / 2)
         y_dist = openmc.stats.Uniform(-L_y / 2, L_y / 2)
-        z_dist = openmc.stats.Discrete(1e-6, 1)  # Se fija z muy cerca de 0
+        z_dist = openmc.stats.Discrete(config.z0 + 1e-6, 1)  # Se fija z muy cerca de z=0
         source.space = openmc.stats.CartesianIndependent(x_dist, y_dist, z_dist)
 
         # Distribución de energía
@@ -429,14 +468,14 @@ def run_simulation(
     else:
         raise ValueError("El parámetro 'fuente' debe contener 1 o 2 elementos.")
 
-    # --------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     # Procesamiento de la geometría
-    # --------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     # Extraer parámetros geométricos
-    vacio = geometria[0]
-    L_x, L_y, L_z = geometria[1:4]
+    vacio = config.geometria[0]
+    L_x, L_y, L_z = config.geometria[1:4]
     if vacio:
-        L_x_vacio, L_y_vacio = geometria[4:6]
+        L_x_vacio, L_y_vacio = config.geometria[4:6]
 
     # Definir material: agua
     mat_agua = openmc.Material(name="agua")
@@ -453,10 +492,14 @@ def run_simulation(
         "x_max": openmc.XPlane(x0=L_x / 2, boundary_type="vacuum"),
         "y_min": openmc.YPlane(y0=-L_y / 2, boundary_type="vacuum"),
         "y_max": openmc.YPlane(y0=L_y / 2, boundary_type="vacuum"),
-        "z_min": openmc.ZPlane(z0=0, boundary_type="vacuum"),
+        "z_min": openmc.ZPlane(z0=config.z0, boundary_type="vacuum"),
         "z_max": openmc.ZPlane(z0=L_z, boundary_type="vacuum"),
-        "z_track": openmc.ZPlane(z0=z0, boundary_type="transmission", surface_id=70),
     }
+
+    # Se agrega la superficie de registro para generar el track file
+    if config.z_track is not None:
+        surfaces.update({"z_track": openmc.ZPlane(z0=config.z_track, boundary_type="transmission", surface_id=70)})
+
 
     # Si hay vacío, definir superficies internas
     if vacio:
@@ -477,9 +520,10 @@ def run_simulation(
             }
         )
 
-    # Para fuente tipo FileSource se traduce la superficie inferior para posicionar z0
-    if len(fuente) == 1:
-        surfaces["z_min"].translate(vector=(0, 0, z0 - 1e-6), inplace=True)
+    # Para fuente tipo FileSource se traduce la superficie inferior para posicionar z0. 
+    # Sino se hace entonces las particulas aparecer fuera de la geometria.
+    if len(config.fuente) == 1:
+        surfaces["z_min"].translate(vector=(0, 0, - 1e-6), inplace=True)
 
     # Definir regiones
     region_externa = (
@@ -505,7 +549,7 @@ def run_simulation(
     universe = openmc.Universe()
 
     if vacio:
-        if len(fuente) == 2:
+        if len(config.fuente) == 2:
             universe.add_cell(
                 openmc.Cell(
                     region=region_externa & ~region_vacio & -surfaces["z_track"],
@@ -538,7 +582,7 @@ def run_simulation(
             )
             universe.add_cell(openmc.Cell(region=region_vacio, fill=None, name="vacio"))
     else:
-        if len(fuente) == 2:
+        if len(config.fuente) == 2:
             universe.add_cell(
                 openmc.Cell(
                     region=region_externa & -surfaces["z_track"],
@@ -561,51 +605,52 @@ def run_simulation(
     geom = openmc.Geometry(universe)
     geom.export_to_xml()
 
-    # --------------------------------------------------------------------------
-    # Configuración de settings y tallies
-    # --------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------------------------------------------------
+    # Configuración de settings
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     settings = openmc.Settings()
-    if len(fuente) == 2:
-        settings.surf_source_write = {"surface_ids": [70], "max_particles": 20000000}
+    settings.surf_source_write = {"surface_ids": [70], "max_particles": 20000000}
     settings.run_mode = "fixed source"
     settings.batches = 100
-    settings.particles = int(N_particles / 100)
+    settings.particles = int(config.num_particles / 100)
     settings.source = source
 
-    # Define weight window spatial mesh
-    ww_mesh = openmc.RegularMesh()
-    ww_mesh.dimension = (10, 10, 10)
-    ww_mesh.lower_left = (-geometria[1] / 2, -geometria[2] / 2, 0.0)
-    ww_mesh.upper_right = (geometria[1] / 2, geometria[2] / 2, geometria[3])
+    # Se definen las ventanas de peso
+    if config.WW:
+        # Define weight window spatial mesh
+        ww_mesh = openmc.RegularMesh()
+        ww_mesh.dimension = (10, 10, 10)
+        ww_mesh.lower_left = (-L_x / 2, -L_y / 2, config.z0)
+        ww_mesh.upper_right = (L_x / 2, L_y / 2, L_z)
 
-    # Create weight window object and adjust parameters
-    wwg = openmc.WeightWindowGenerator(
-        method="magic", mesh=ww_mesh, max_realizations=settings.batches
-    )
+        # Create weight window object and adjust parameters
+        wwg = openmc.WeightWindowGenerator(
+            method="magic", mesh=ww_mesh, max_realizations=settings.batches, energy_bounds=[0, 1,1e3,1e7],update_interval=2
+        )
 
-    # Add generator to Settings instance
-    settings.weight_window_generators = wwg
-    settings.export_to_xml()
+        # Add generator to Settings instance
+        settings.weight_window_generators = wwg
+    settings.export_to_xml() 
 
+    # ---------------------------------------------------------------------------------------------------------------------------------------
+    # Configuración de tallies
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     # Tally: malla para flujo total
     mesh = openmc.RectilinearMesh()
     mesh.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
     mesh.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
-    mesh.z_grid = np.linspace(0, L_z, 601)
+    mesh.z_grid = np.linspace(config.z0, L_z, 51)
     mesh_filter = openmc.MeshFilter(mesh)
     tally_flux_total = openmc.Tally(name="flux_total")
     tally_flux_total.filters = [mesh_filter]
     tally_flux_total.scores = ["flux"]
-    # Normalizar por el volumen de las celdas de la malla
-    tally_flux_total.scoring = "flux"
-    tally_flux_total.numbers = "volume"  # Normalización por volumen
 
     # Tally: malla para flujo en vacio
     if vacio:
         mesh_vacio = openmc.RectilinearMesh()
         mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
         mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
-        mesh_vacio.z_grid = np.linspace(0, L_z, 601)
+        mesh_vacio.z_grid = np.linspace(config.z0, L_z, 51)
         mesh_filter_vacio = openmc.MeshFilter(mesh_vacio)
         tally_flux_vacio = openmc.Tally(name="flux_vacio")
         tally_flux_vacio.filters = [mesh_filter_vacio]
@@ -616,68 +661,31 @@ def run_simulation(
     )
 
     # Tally: superficie para espectro en 1m
+    def make_spectrum_tally(L_x, L_y, L_z, name):
+        mesh_total = openmc.RectilinearMesh()
+        mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
+        mesh_total.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
+        mesh_total.z_grid = np.linspace(L_z -1, L_z, 2)
 
-    mesh_total = openmc.RectilinearMesh()
-    mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
-    mesh_total.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
-    mesh_total.z_grid = np.linspace(L_z * 0.99, L_z, 2)
-    if vacio:
-        mesh_vacio = openmc.RectilinearMesh()
-        mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
-        mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
-        mesh_vacio.z_grid = np.linspace(L_z * 0.99, L_z, 2)
-
-    tally_surface = openmc.Tally(name="espectro_total_1m")
-    tally_surface.filters = [
-        openmc.MeshFilter(mesh_total),
-        openmc.EnergyFilter(np.logspace(-3, 7, 75)),
-    ]
-    tally_surface.scores = ["flux"]
-    tallies.append(tally_surface)
-
-    if vacio:
-        tally_surface = openmc.Tally(name="espectro_vacio_1m")
+        tally_surface = openmc.Tally(name=name)
         tally_surface.filters = [
-            openmc.MeshFilter(mesh_vacio),
-            openmc.EnergyFilter(np.logspace(-3, 7, 75)),
+            openmc.MeshFilter(mesh_total),
+            openmc.EnergyFilter(np.logspace(-3, 7, 50)),
         ]
         tally_surface.scores = ["flux"]
-        tallies.append(tally_surface)
-
-        # Tally: superficie para espectro en 0.5m
-
-    mesh_total = openmc.RectilinearMesh()
-    mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
-    mesh_total.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
-    mesh_total.z_grid = np.linspace(L_z * 0.49, L_z * 0.5, 2)
-    if vacio:
-        mesh_vacio = openmc.RectilinearMesh()
-        mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
-        mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
-        mesh_vacio.z_grid = np.linspace(L_z * 0.49, L_z * 5, 2)
-
-    tally_surface = openmc.Tally(name="espectro_total_05m")
-    tally_surface.filters = [
-        openmc.MeshFilter(mesh_total),
-        openmc.EnergyFilter(np.logspace(-3, 7, 75)),
-    ]
-    tally_surface.scores = ["flux"]
-    tallies.append(tally_surface)
-
-    if vacio:
-        tally_surface = openmc.Tally(name="espectro_vacio_05m")
-        tally_surface.filters = [
-            openmc.MeshFilter(mesh_vacio),
-            openmc.EnergyFilter(np.logspace(-3, 7, 75)),
-        ]
-        tally_surface.scores = ["flux"]
-        tallies.append(tally_surface)
+        return tally_surface
+    
+    for Z in config.z_for_spectral_tally:
+        if config.z0 <= Z <= L_z:
+            tallies.append(make_spectrum_tally(L_x, L_y, Z, f"espectro_total_{Z}cm"))
+            if vacio:
+                tallies.append(make_spectrum_tally(L_x_vacio, L_y_vacio, Z, f"espectro_vacio_{Z}cm"))
 
     tallies.export_to_xml()
 
-    # --------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     # Limpieza de archivos previos y ejecución de la simulación
-    # --------------------------------------------------------------------------
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     for file in glob.glob("statepoint.*.h5"):
         os.remove(file)
     if os.path.exists("summary.h5"):
@@ -685,16 +693,23 @@ def run_simulation(
 
     openmc.run()
 
+    # ---------------------------------------------------------------------------------------------------------------------------------------
+    # Procesamiento de los resultados
+    # ---------------------------------------------------------------------------------------------------------------------------------------
     # Mover archivos de salida según tipo de fuente
     statepoint_files = glob.glob("statepoint.*.h5")
-    nuevo_nombre = (
-        "statepoint_original.h5"
-        if len(fuente) == 2
-        else "statepoint_sintetico.h5" if outfile_name is None else outfile_name
-    )
+    
     for file in statepoint_files:
-        shutil.move(file, nuevo_nombre)
+        shutil.move(file, config.statepoint_name)
 
+    if config.z_track is not None and config.trackfile_name is not None:
+        shutil.move("surface_source.h5", config.trackfile_name)
+
+    # ----------------------------------------------------------------------------------------------------------------------------------------
+    # Return to the previous directory if a folder was specified
+    # ----------------------------------------------------------------------------------------------------------------------------------------
+    if config.folder is not None:
+        os.chdir("..")
 
 def calculate_cumul_micro_macro(
     df: pd.DataFrame,

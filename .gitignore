@@ -7,5 +7,7 @@ track_files
 *.out
 *.xz
 *.gz
+*.txt
+*.xml
 
 **/__pycache__

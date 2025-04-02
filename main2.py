@@ -3,7 +3,7 @@ import sys
 sys.path.append("/home/lucas/Documents/Proyecto_Integrador/PI")
 from functions import *
 
-folder_path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-17-25"
+folder_path = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-19-25"
 os.chdir(folder_path)
 
 geometria = [True, 15, 15, 100, 3, 3]
@@ -11,11 +11,11 @@ z0 = 30
 columns_order = ["ln(E0/E)", "x", "y", "mu", "phi"]
 
 # Definir los argumentos necesarios
-folder = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-17-25/"
-sample_count = "50000"  # Nota: se pasa como cadena, ya que se envía desde la línea de comandos
+folder = "/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/3-19-25/"
+sample_count = "10000"  # Nota: se pasa como cadena, ya que se envía desde la línea de comandos
 source = "source.xml"
-result = "sint_source.mcpl"
-statepoint_name = "statepoint_sintetico.h5"
+result = "sint_source_macros.mcpl"
+statepoint_name = "statepoint_sintetico_macros.h5"
 
 batches = 2
 

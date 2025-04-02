@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='UTF-8'?>
-<settings>
-  <run_mode>fixed source</run_mode>
-  <particles>100000</particles>
-  <batches>100</batches>
-  <source file="/home/lucas/Documents/Proyecto_Integrador/PI/segundo_semestre/4-3-25/prueba1/sintetico.h5" strength="1.0" type="file"/>
-</settings>
