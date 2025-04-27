@@ -427,15 +427,27 @@ class Simulation:
             sp = openmc.StatePoint(path)
             tally = sp.get_tally(name=tally_name)
             df = tally.get_pandas_dataframe()
-            df.columns = [
-                "x",
-                "y",
-                "z",
-                "nuclide",
-                "score",
-                "mean",
-                "std.dev.",
-            ]
+            if len(df.columns) == 7:
+                df.columns = [
+                    "x",
+                    "y",
+                    "z",
+                    "nuclide",
+                    "score",
+                    "mean",
+                    "std.dev.",
+                ]
+            else:
+                df.columns = [
+                    "x",
+                    "y",
+                    "z",
+                    "nuclide",
+                    "score",
+                    "mean",
+                ]
+                df["std.dev."] = 1000
+
             volumen_celda = (
                 tally.filters[0]._mesh.total_volume
                 / tally.filters[0]._mesh.num_mesh_cells
@@ -896,547 +908,360 @@ class Simulation:
                 self.folder,
             )
 
+    def get_tally_flux_2_df(self, tally_name: str) -> pd.DataFrame:
+        """
+        Devuelve un DataFrame con el flujo espacial normalizado para un tally de tipo 'flux_*'.
 
-def plot_compare_flux(sim_original, sim_sintetica, save=False):
+        Args:
+            tally_name (str): Nombre del tally a procesar.
 
-    def tally_flux_2_df(path, tally_name, factor_normalizacion):
-        sp = openmc.StatePoint(path)
+        Returns:
+            pd.DataFrame: DataFrame con columnas ['z_midpoints', 'mean_norm', 'std.dev._norm'] y más información.
+        """
+        # Abrimos el archivo statepoint y accedemos al tally solicitado
+        sp = openmc.StatePoint(self.folder + self.statepoint_name)
         tally = sp.get_tally(name=tally_name)
         df = tally.get_pandas_dataframe()
-        df.columns = [
-            "x",
-            "y",
-            "z",
-            "nuclide",
-            "score",
-            "mean",
-            "std.dev.",
-        ]
+
+        # Renombrar columnas dependiendo si tiene desviación estándar
+        if len(df.columns) == 7:
+            df.columns = ["x", "y", "z", "nuclide", "score", "mean", "std.dev."]
+        else:
+            df.columns = ["x", "y", "z", "nuclide", "score", "mean"]
+            df["std.dev."] = 1000.0  # Valor dummy para mantener estructura
+
+        # Calcular volumen de celda
         volumen_celda = (
             tally.filters[0]._mesh.total_volume / tally.filters[0]._mesh.num_mesh_cells
         )
-        df["mean_norm"] = df["mean"] / volumen_celda * factor_normalizacion
+
+        # Normalizar mean y std.dev. por volumen de celda y factor de normalización
+        df["mean_norm"] = df["mean"] / volumen_celda * self.factor_normalizacion
         df["std.dev._norm"] = df["std.dev."] / volumen_celda
+
+        # Calcular puntos medios de z
         z_min = tally.filters[0]._mesh.lower_left[2]
         z_max = tally.filters[0]._mesh.upper_right[2]
         z = np.linspace(z_min, z_max, tally.filters[0]._mesh.num_mesh_cells + 1)
         z_midpoints = (z[:-1] + z[1:]) / 2
         df["z_midpoints"] = z_midpoints
+
         return df
 
-    def get_tally_agua(df_total, df_vacio):
-        volumen_total = df_total["mean"].sum() / df_total["mean_norm"].sum()
-        volumen_vacio = df_vacio["mean"].sum() / df_vacio["mean_norm"].sum()
-        volumen_agua = volumen_total - volumen_vacio
+    def get_tally_espectro_2_df(self, tally_name: str) -> pd.DataFrame:
+        """
+        Devuelve un DataFrame con el espectro energético normalizado para un tally de tipo 'espectro_*'.
 
-        df_agua = df_total.copy()
-        df_agua["mean"] = df_agua["mean"] - df_vacio["mean"]
-        df_agua["std.dev."] = np.sqrt(
-            df_agua["std.dev."] ** 2 + df_vacio["std.dev."] ** 2
-        )  # Revisar esto si hace falta. No se reviso hasta el momento.
-        df_agua["mean_norm"] = df_agua["mean"] / volumen_agua
-        df_agua["std.dev._norm"] = df_agua["std.dev."] / volumen_agua
+        Args:
+            tally_name (str): Nombre del tally a procesar.
 
-        return df_agua
+        Returns:
+            pd.DataFrame: DataFrame con columnas ['E_mid', 'mean_norm', 'std.dev._norm'] y más información.
+        """
+        sp = openmc.StatePoint(self.folder + self.statepoint_name)
+        tally = sp.get_tally(name=tally_name)
+        df = tally.get_pandas_dataframe()
 
-    def compare_flux(df_original, df_sintetico, save, nombre):
-        plt.figure(figsize=(10, 6))
-        plt.plot(
-            df_original["z_midpoints"],
-            df_original["mean_norm"],
-            label="Flujo original",
-            color="blue",
+        # Renombramos columnas para espectro (usa energía mínima y máxima)
+        df.columns = [
+            "x",
+            "y",
+            "z",
+            "E_min",
+            "E_max",
+            "nuclide",
+            "score",
+            "mean",
+            "std.dev.",
+        ]
+
+        # Volumen de celda
+        volumen_celda = (
+            tally.filters[0]._mesh.total_volume / tally.filters[0]._mesh.num_mesh_cells
         )
-        plt.plot(
-            df_sintetico["z_midpoints"],
-            df_sintetico["mean_norm"],
-            label="Flujo sintetico",
-            color="red",
-        )
-        plt.xlabel("z [cm]")
-        plt.ylabel("Flujo [cm$^{-2}$ s$^{-1}$]")
-        plt.title("Flujo en funcion de z")
-        plt.legend()
-        plt.grid()
-        plt.yscale("log")
-        if save:
-            plt.savefig(
-                sim_sintetica.folder
-                + "flujo_"
-                + nombre
-                + f"_{sim_sintetica.simulacion_numero}.png",
-                bbox_inches="tight",
-                dpi=300,
-            )
-        plt.show()
 
-    df_flux_total_original = tally_flux_2_df(
-        sim_original.folder + sim_original.statepoint_name,
-        tally_name="flux_total",
-        factor_normalizacion=sim_original.factor_normalizacion,
-    )
-    df_flux_total_sintetica = tally_flux_2_df(
-        sim_sintetica.folder + sim_sintetica.statepoint_name,
-        tally_name="flux_total",
-        factor_normalizacion=sim_sintetica.factor_normalizacion,
-    )
-    compare_flux(
-        df_flux_total_original,
-        df_flux_total_sintetica,
-        save=save,
-        nombre="total",
-    )
+        # Normalización
+        df["mean_norm"] = df["mean"] / volumen_celda * self.factor_normalizacion
+        df["std.dev._norm"] = df["std.dev."] / volumen_celda
 
-    df_flux_vacio_original = tally_flux_2_df(
-        sim_original.folder + sim_original.statepoint_name,
-        tally_name="flux_vacio",
-        factor_normalizacion=sim_original.factor_normalizacion,
-    )
-    df_flux_vacio_sintetica = tally_flux_2_df(
-        sim_sintetica.folder + sim_sintetica.statepoint_name,
-        tally_name="flux_vacio",
-        factor_normalizacion=sim_sintetica.factor_normalizacion,
-    )
-    compare_flux(
-        df_flux_vacio_original,
-        df_flux_vacio_sintetica,
-        save=save,
-        nombre="vacio",
-    )
+        # Punto medio de energía
+        df["E_mid"] = (df["E_min"] + df["E_max"]) / 2
 
-    df_flux_agua_original = get_tally_agua(
-        df_flux_total_original, df_flux_vacio_original
-    )
-    df_flux_agua_sintetica = get_tally_agua(
-        df_flux_total_sintetica, df_flux_vacio_sintetica
-    )
-    compare_flux(
-        df_flux_agua_original,
-        df_flux_agua_sintetica,
-        save=save,
-        nombre="agua",
-    )
+        return df
 
 
-###############################################################################################################################
-
-
-class SimulationConfig:
-    def __init__(
-        self,
-        geometria,
-        z0,
-        z_track,
-        fuente,
-        z_for_spectral_tally,
-        num_particles,
-        WW,
-        folder,
-        statepoint_name,
-        trackfile_name,
-    ):
-        self.geometria = geometria
-        self.z0 = z0
-        self.z_track = z_track
-        self.fuente = fuente
-        self.z_for_spectral_tally = z_for_spectral_tally
-        self.num_particles = num_particles
-        self.WW = WW
-        self.folder = folder
-        self.statepoint_name = statepoint_name
-        self.trackfile_name = trackfile_name
-
-
-class SamplingConfig:
-    def __init__(
-        self,
-        columns_order,
-        micro_bins,
-        macro_bins,
-        binning_type,
-        user_defined_edges,
-        folder,
-        surface_track_path,
-        output_name,
-        trackfile_resampled_name,
-        num_resampling,
-    ):
-        self.columns_order = columns_order
-        self.micro_bins = micro_bins
-        self.macro_bins = macro_bins
-        self.binning_type = binning_type
-        self.user_defined_edges = user_defined_edges
-        self.folder = folder
-        self.surface_track_path = surface_track_path
-        self.output_name = output_name
-        self.trackfile_resampled_name = trackfile_resampled_name
-        self.num_resampling = num_resampling
-
-
-def run_simulation(
-    config: SimulationConfig,
-    # fuente: list, geometria: list, z0: float, z_track:float, N_particles: int,z_for_spectral_tally:list=None, outfile_name: str = None, WW = False,folder = None
+def plot_flux_comparison(
+    sim_original, sim_sintetica, save=True, filename="resultados_flujo.png"
 ) -> None:
     """
-    Ejecuta una simulación en OpenMC con la configuración especificada.
+    Compara gráficamente el flujo entre simulaciones original y sintética para las regiones:
+    total, agua y vacío, e incluye errores relativos (en %), interpolando sobre un eje z común.
 
-    Parámetros:
-        fuente (list):
-            - Si tiene 1 elemento: se asume que es la ruta a un archivo de fuente.
-            - Si tiene 2 elementos: se asume que es [fuente_energia, fuente_direccion] para fuente independiente.
-                - fuente_energia puede ser:
-                    - "monoenergetica": Fuente con energía fija.
-                    - "espectro_fision": Fuente con espectro de fisión.
-                    - "espectro_termico": Fuente con espectro térmico.
-                - fuente_direccion puede ser:
-                    - "colimada": Fuente con dirección fija.
-                    - "isotropica": Fuente con distribución isotrópica.
-
-        geometria (list): Parámetros geométricos:
-            - geometria[0] (bool): Flag para indicar si existe región de vacío.
-            - geometria[1] (float): L_x, ancho del paralelepípedo.
-            - geometria[2] (float): L_y, ancho del paralelepípedo.
-            - geometria[3] (float): L_z, altura del paralelepípedo.
-            - Si geometria[0] es True, se esperan además:
-                - geometria[4] (float): L_x_vacio.
-                - geometria[5] (float): L_y_vacio.
-
-        z0 (float): Posición en z donde empieza la simulación.
-        z_track (float): Posición en z para la superficie de track.
-        N_particles (int): Número de partículas a simular en total.
-        outfile_name (str): Nombre del archivo de salida. Si es None, se usa el nombre por defecto.
-        WW (bool): Si se activa, se generan weight windows.
+    El dominio va desde z0_sint hasta el mínimo z_max de ambas curvas.
     """
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Configuración de secciones eficaces
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    openmc.config["cross_sections"] = (
-        "/home/lucas/Documents/Proyecto_Integrador/endfb-viii.0-hdf5/cross_sections.xml"
+
+    def compute_relative_error(
+        df_orig, df_sint, z0_sint: float, num_interp_points: int = 1000
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Calcula el error relativo entre los perfiles original y sintético de flujo,
+        interpolando ambos sobre una grilla común en z.
+        """
+        z_min = z0_sint
+        z_max = min(df_orig["z_midpoints"].max(), df_sint["z_midpoints"].max())
+        z_interp = np.linspace(z_min, z_max, num_interp_points)
+
+        interp_orig = np.interp(z_interp, df_orig["z_midpoints"], df_orig["mean_norm"])
+        interp_sint = np.interp(z_interp, df_sint["z_midpoints"], df_sint["mean_norm"])
+
+        # Crear máscara para valores no cero
+        mask_nonzero = interp_orig != 0
+
+        # Inicializar el array de error relativo con NaN
+        err_rel = np.full_like(interp_orig, fill_value=np.nan)
+
+        # Calcular el error relativo donde interp_orig no es cero
+        err_rel[mask_nonzero] = (
+            100
+            * (interp_orig[mask_nonzero] - interp_sint[mask_nonzero])
+            / interp_orig[mask_nonzero]
+        )
+
+        # Asignar infinito donde interp_orig es cero
+        err_rel[~mask_nonzero] = np.inf
+
+        return z_interp, err_rel
+    
+    def redondear_a_una_cifra(x: float) -> float:
+        """
+        Redondea un número positivo a una sola cifra significativa.
+        Por ejemplo:
+        - 3.76 → 4
+        - 0.084 → 0.08
+        - 123 → 100
+        """
+        if x == 0:
+            return 0
+        exponente = np.floor(np.log10(abs(x)))
+        return round(x / 10**exponente) * 10**exponente
+
+    # Obtener DataFrames de cada región
+    df_total_orig = sim_original.get_tally_flux_2_df("flux_total")
+    df_total_sint = sim_sintetica.get_tally_flux_2_df("flux_total")
+    df_vacio_orig = sim_original.get_tally_flux_2_df("flux_vacio")
+    df_vacio_sint = sim_sintetica.get_tally_flux_2_df("flux_vacio")
+    df_agua_orig = get_tally_agua(df_total_orig, df_vacio_orig)
+    df_agua_sint = get_tally_agua(df_total_sint, df_vacio_sint)
+
+    fig = plt.figure(figsize=(16 * 1.25, 9 * 0.8))
+    gs = gridspec.GridSpec(2, 3, height_ratios=[2.5, 1])
+    axs = [fig.add_subplot(gs[i, j]) for i in range(2) for j in range(3)]
+
+    plt.subplots_adjust(
+        left=0.07, right=0.95, top=0.94, bottom=0.00, wspace=0.3, hspace=0.25
     )
 
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Configuración de la carpeta de trabajo
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Si se especifica una carpeta, se crea y se cambia a esa carpeta. Si no, se usa la carpeta actual.
-    if config.folder is not None:
-        if not os.path.exists(config.folder):
-            os.makedirs(config.folder)
-        os.chdir(config.folder)
+    nombres = ["Total", "Agua", "Vacío"]
+    df_orig_all = [df_total_orig, df_agua_orig, df_vacio_orig]
+    df_sint_all = [df_total_sint, df_agua_sint, df_vacio_sint]
 
-    # ----------------------------------------------------------------------------------------------------------------------------------------
-    # Procesamiento de la fuente
-    # ----------------------------------------------------------------------------------------------------------------------------------------
-    # Si la longitud de la fuente es 1, se asume que es un archivo de fuente.
-    # Si la longitud de la fuente es 2, se asume que es una fuente independiente.
-    if len(config.fuente) == 1:
-        source = openmc.FileSource(config.fuente[0])
-    elif len(config.fuente) == 2:
-        fuente_energia, fuente_direccion = config.fuente
-        source = openmc.IndependentSource()
-        source.particle = "neutron"
+    for i in range(3):
+        df_orig = df_orig_all[i]
+        df_sint = df_sint_all[i]
 
-        # Distribución espacial: se coloca en la región central de la geometría
-        L_x, L_y = config.geometria[1], config.geometria[2]
-        x_dist = openmc.stats.Uniform(-L_x / 2, L_x / 2)
-        y_dist = openmc.stats.Uniform(-L_y / 2, L_y / 2)
-        z_dist = openmc.stats.Discrete(
-            config.z0 + 1e-6, 1
-        )  # Se fija z muy cerca de z=0
-        source.space = openmc.stats.CartesianIndependent(x_dist, y_dist, z_dist)
+        # Establecer límites comunes en eje x
+        z_min = 0
+        z_max = max(df_orig["z_midpoints"].max(), df_sint["z_midpoints"].max())
+        z_min = z_min - (z_max - z_min) * 0.05
+        z_max = z_max + (z_max - z_min) * 0.05
 
-        # Distribución de energía
-        if fuente_energia == "monoenergetica":
-            source.energy = openmc.stats.Discrete([1e6], [1])
+        # Curvas originales y sintéticas
+        axs[i].plot(
+            df_orig["z_midpoints"],
+            df_orig["mean_norm"],
+            label="Original",
+            color="blue",
+            linestyle="--",
+        )
+        axs[i].plot(
+            df_sint["z_midpoints"],
+            df_sint["mean_norm"],
+            label="Sintético",
+            color="red",
+            linestyle="-",
+        )
+        axs[i].set_title(f"Flujo {nombres[i]} vs. z")
+        axs[i].set_ylabel(r"$\phi$ [cm$^{-2}$ s$^{-1}$]")
+        axs[i].set_yscale("log")
+        axs[i].set_xlabel("z [cm]")
+        axs[i].grid(True, which="both", linestyle="--", linewidth=0.5)
+        axs[i].legend()
+        axs[i].set_xlim(z_min, z_max)  # sincronizar eje x
 
-        # Distribución angular
-        if fuente_direccion == "colimada":
-            mu = openmc.stats.Discrete([1], [1])
-            phi = openmc.stats.Uniform(0.0, 2 * np.pi)
-            source.angle = openmc.stats.PolarAzimuthal(mu, phi)
-    else:
-        raise ValueError("El parámetro 'fuente' debe contener 1 o 2 elementos.")
+        # Error relativo interpolado
+        z_interp, err_rel = compute_relative_error(df_orig, df_sint, sim_sintetica.z0)
+        axs[i + 3].plot(z_interp, err_rel, color="black")
+        axs[i + 3].axhline(0, color="gray", linestyle="--", linewidth=1)
+        axs[i + 3].set_ylabel("Error relativo [\%]")
 
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Procesamiento de la geometría
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Extraer parámetros geométricos
-    vacio = config.geometria[0]
-    L_x, L_y, L_z = config.geometria[1:4]
-    if vacio:
-        L_x_vacio, L_y_vacio = config.geometria[4:6]
+        # Cálculo de límites del eje y con margen simétrico (rango total)
+        err_min = np.nanmin(err_rel)
+        err_max = np.nanmax(err_rel)
+        y_range = err_max - err_min
+        y_margin = y_range * 0.05
 
-    # Definir material: agua
-    mat_agua = openmc.Material(name="agua")
-    mat_agua.add_nuclide("H1", 2.0, "ao")
-    mat_agua.add_nuclide("O16", 1.0, "ao")
-    mat_agua.add_s_alpha_beta("c_H_in_H2O")
-    mat_agua.set_density("g/cm3", 1.0)
-    mats = openmc.Materials([mat_agua])
-    mats.export_to_xml()
+        y_lim_min = max(err_min - y_margin, -100)
+        y_lim_max = min(err_max + y_margin, 100)
+        axs[i + 3].set_ylim(y_lim_min, y_lim_max)
 
-    # Definir superficies externas
-    surfaces = {
-        "x_min": openmc.XPlane(x0=-L_x / 2, boundary_type="vacuum"),
-        "x_max": openmc.XPlane(x0=L_x / 2, boundary_type="vacuum"),
-        "y_min": openmc.YPlane(y0=-L_y / 2, boundary_type="vacuum"),
-        "y_max": openmc.YPlane(y0=L_y / 2, boundary_type="vacuum"),
-        "z_min": openmc.ZPlane(z0=config.z0, boundary_type="vacuum"),
-        "z_max": openmc.ZPlane(z0=L_z, boundary_type="vacuum"),
-    }
+        # Calcular paso = 20% del rango, redondeado a 1 cifra significativa
+        paso_base = 0.2 * (y_lim_max - y_lim_min)
 
-    # Se agrega la superficie de registro para generar el track file
-    if config.z_track is not None:
-        surfaces.update(
-            {
-                "z_track": openmc.ZPlane(
-                    z0=config.z_track, boundary_type="transmission", surface_id=70
-                )
-            }
+        # Redondear a 1 cifra significativa
+        paso = max(redondear_a_una_cifra(paso_base), 1e-6)
+
+        # Establecer ticks manuales
+        ticks_y = np.arange(np.floor(y_lim_min), np.ceil(y_lim_max) + paso, paso)
+
+        # Asegurarse de que 0 esté en los ticks
+        if not np.any(np.isclose(ticks_y, 0)):
+            ticks_y = np.sort(np.append(ticks_y, 0.0))
+
+        axs[i + 3].set_yticks(ticks_y)
+        
+        axs[i + 3].grid(True, which="both", linestyle="--", linewidth=0.5)
+        axs[i + 3].set_xlim(z_min, z_max)  # sincronizar eje x
+
+    if save:
+        full_path = os.path.join(sim_sintetica.folder, filename)
+        plt.savefig(full_path, bbox_inches="tight", dpi=300)
+    plt.show()
+
+
+def plot_espectro_comparison(
+    sim_original, sim_sintetica, z: float, save: bool = True, filename: str = None
+) -> None:
+    """
+    Genera una figura con 6 subplots comparando el espectro (total, agua, vacío) original vs. sintético
+    a una posición z dada, junto con sus errores relativos.
+
+    Parámetros
+    ----------
+    sim_original : Simulation
+        Simulación con los resultados originales.
+    sim_sintetica : Simulation
+        Simulación con los resultados sintéticos generados.
+    z : float
+        Posición z en cm correspondiente al tally de espectro.
+    save : bool, opcional
+        Si es True, guarda la figura como imagen PNG (default = True).
+    filename : str, opcional
+        Nombre del archivo PNG a guardar (default = "resultados_espectro_{z}.png").
+    """
+
+    def compute_relative_error(df_orig, df_sint) -> np.ndarray:
+        """
+        Calcula el error relativo porcentual entre dos series de espectro normalizado.
+        """
+        return (
+            100 * (df_orig["mean_norm"] - df_sint["mean_norm"]) / df_orig["mean_norm"]
         )
 
-    # Si hay vacío, definir superficies internas
-    if vacio:
-        surfaces.update(
-            {
-                "x_min_vacio": openmc.XPlane(
-                    x0=-L_x_vacio / 2, boundary_type="transmission"
-                ),
-                "x_max_vacio": openmc.XPlane(
-                    x0=L_x_vacio / 2, boundary_type="transmission"
-                ),
-                "y_min_vacio": openmc.YPlane(
-                    y0=-L_y_vacio / 2, boundary_type="transmission"
-                ),
-                "y_max_vacio": openmc.YPlane(
-                    y0=L_y_vacio / 2, boundary_type="transmission"
-                ),
-            }
-        )
+    # Obtener DataFrames normalizados desde ambas simulaciones
+    df_total_orig = sim_original.get_tally_espectro_2_df(f"espectro_total_{z}cm")
+    df_total_sint = sim_sintetica.get_tally_espectro_2_df(f"espectro_total_{z}cm")
+    df_vacio_orig = sim_original.get_tally_espectro_2_df(f"espectro_vacio_{z}cm")
+    df_vacio_sint = sim_sintetica.get_tally_espectro_2_df(f"espectro_vacio_{z}cm")
 
-    # Para fuente tipo FileSource se traduce la superficie inferior para posicionar z0.
-    # Sino se hace entonces las particulas aparecer fuera de la geometria.
-    if len(config.fuente) == 1:
-        surfaces["z_min"].translate(vector=(0, 0, -1e-6), inplace=True)
+    df_agua_orig = get_tally_agua(df_total_orig, df_vacio_orig)
+    df_agua_sint = get_tally_agua(df_total_sint, df_vacio_sint)
 
-    # Definir regiones
-    region_externa = (
-        +surfaces["x_min"]
-        & -surfaces["x_max"]
-        & +surfaces["y_min"]
-        & -surfaces["y_max"]
-        & +surfaces["z_min"]
-        & -surfaces["z_max"]
+    # Preparar figura y subplots: 2 filas (espectros, errores), 3 columnas (total, agua, vacío)
+    fig, axs = plt.subplots(2, 3, figsize=(16 * 1.25, 9 * 0.8), sharex=f"col")
+    plt.subplots_adjust(
+        left=0.07, right=0.95, top=0.97, bottom=0.05, wspace=0.3, hspace=0.15
     )
 
-    if vacio:
-        region_vacio = (
-            +surfaces["x_min_vacio"]
-            & -surfaces["x_max_vacio"]
-            & +surfaces["y_min_vacio"]
-            & -surfaces["y_max_vacio"]
-            & +surfaces["z_min"]
-            & -surfaces["z_max"]
-        )
+    # Listas con nombres, dataframes, y etiquetas
+    nombres = ["Total", "Agua", "Vacío"]
+    df_orig_all = [df_total_orig, df_agua_orig, df_vacio_orig]
+    df_sint_all = [df_total_sint, df_agua_sint, df_vacio_sint]
 
-    # Crear universo y definir celdas según configuración de fuente y vacío
-    universe = openmc.Universe()
+    for i in range(3):
+        x = df_orig_all[i]["E_mid"]
+        y_orig = df_orig_all[i]["mean_norm"]
+        y_sint = df_sint_all[i]["mean_norm"]
+        error_rel = compute_relative_error(df_orig_all[i], df_sint_all[i])
 
-    if vacio:
-        if config.z_track is not None:
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_externa & ~region_vacio & -surfaces["z_track"],
-                    fill=mat_agua,
-                    name="agua1",
-                )
-            )
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_externa & ~region_vacio & +surfaces["z_track"],
-                    fill=mat_agua,
-                    name="agua2",
-                )
-            )
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_vacio & -surfaces["z_track"], fill=None, name="vacio1"
-                )
-            )
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_vacio & +surfaces["z_track"], fill=None, name="vacio2"
-                )
-            )
+        # Fila superior: espectros
+        axs[0, i].plot(x, y_orig, label="Original", color="blue", linestyle="--")
+        axs[0, i].plot(x, y_sint, label="Sintético", color="red", linestyle="-")
+        axs[0, i].set_xscale("log")
+        axs[0, i].set_yscale("log")
+        axs[0, i].set_title(f"Espectro {nombres[i]} en z = {z} cm")
+        axs[0, i].set_ylabel("$\phi$ [cm$^{-2}$ s$^{-1}$ eV$^{-1}$]")
+        axs[0, i].grid(True, which="both", linestyle="--")
+        axs[0, i].legend()
+
+        # Fila inferior: error relativo
+        if np.any(~np.isinf(error_rel) & ~np.isnan(error_rel)):  # Verifica si hay algún número que no sea infinito ni NaN en error_rel
+            axs[1, i].plot(x, error_rel, color="black")
+            axs[1, i].axhline(0, color="gray", linestyle="--", linewidth=1)
+            axs[1, i].set_xscale("log")
+            axs[1, i].set_ylabel("Error relativo [%]")
+            axs[1, i].set_ylim(max(error_rel.min(), -100), min(error_rel.max(), 100))
+            axs[1, i].grid(True, which="both", linestyle="--")
         else:
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_externa & ~region_vacio, fill=mat_agua, name="agua"
-                )
-            )
-            universe.add_cell(openmc.Cell(region=region_vacio, fill=None, name="vacio"))
-    else:
-        if config.z_track is not None:
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_externa & -surfaces["z_track"],
-                    fill=mat_agua,
-                    name="agua1",
-                )
-            )
-            universe.add_cell(
-                openmc.Cell(
-                    region=region_externa & +surfaces["z_track"],
-                    fill=mat_agua,
-                    name="agua2",
-                )
-            )
-        else:
-            universe.add_cell(
-                openmc.Cell(region=region_externa, fill=mat_agua, name="agua")
-            )
+            axs[1, i].set_visible(False)  # Si no hay valores útiles, deja el subplot vacío
 
-    geom = openmc.Geometry(universe)
-    geom.export_to_xml()
+    axs[1, 1].set_xlabel("Energía [eV]")
 
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Configuración de settings
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    settings = openmc.Settings()
-    settings.surf_source_write = {"surface_ids": [70], "max_particles": 20000000}
-    settings.run_mode = "fixed source"
-    settings.batches = 100
-    settings.particles = int(config.num_particles / 100)
-    settings.source = source
+    # Nombre del archivo si no se especificó
+    if filename is None:
+        filename = f"resultados_espectro_{z:.0f}.png"
 
-    # Se definen las ventanas de peso
-    if config.WW:
-        # Define weight window spatial mesh
-        ww_mesh = openmc.RegularMesh()
-        ww_mesh.dimension = (10, 10, 10)
-        ww_mesh.lower_left = (-L_x / 2, -L_y / 2, config.z0)
-        ww_mesh.upper_right = (L_x / 2, L_y / 2, L_z)
+    if save:
+        full_path = os.path.join(sim_sintetica.folder, filename)
+        plt.savefig(full_path, bbox_inches="tight", dpi=300)
 
-        # Create weight window object and adjust parameters
-        wwg = openmc.WeightWindowGenerator(
-            method="magic",
-            mesh=ww_mesh,
-            max_realizations=settings.batches,
-            energy_bounds=[0, 1, 1e3, 1e7],
-            update_interval=2,
+    plt.show()
+
+def plot_espectro_comparison_all_common_z(sim_original, sim_sintetica, save=True) -> None:
+    """
+    Compara los espectros entre dos simulaciones en todos los valores de z que tienen en común.
+
+    Parameters
+    ----------
+    sim_original : Simulation
+        Simulación original.
+    sim_sintetica : Simulation
+        Simulación con fuente sintética.
+    save : bool
+        Si es True, guarda las imágenes generadas.
+    """
+    # Convertimos a conjuntos para buscar intersección
+    z_orig = set(sim_original.z_for_spectral_tally)
+    z_sint = set(sim_sintetica.z_for_spectral_tally)
+
+    # z comunes entre ambas simulaciones
+    z_comunes = sorted(z_orig.intersection(z_sint))
+
+    if not z_comunes:
+        print("No hay valores de z en común entre ambas simulaciones.")
+        return
+
+    print(f"Se encontraron {len(z_comunes)} valores de z en común: {z_comunes}")
+
+    for z in z_comunes:
+        filename = f"resultados_espectro_{z:.0f}cm.png"
+        plot_espectro_comparison(
+            sim_original=sim_original,
+            sim_sintetica=sim_sintetica,
+            z=z,
+            save=save,
+            filename=filename,
         )
 
-        # Add generator to Settings instance
-        settings.weight_window_generators = wwg
-    settings.export_to_xml()
-
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Configuración de tallies
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Tally: malla para flujo total
-    mesh = openmc.RectilinearMesh()
-    mesh.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
-    mesh.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
-    mesh.z_grid = np.linspace(config.z0, L_z, 51)
-    mesh_filter = openmc.MeshFilter(mesh)
-    tally_flux_total = openmc.Tally(name="flux_total")
-    tally_flux_total.filters = [mesh_filter]
-    tally_flux_total.scores = ["flux"]
-
-    # Tally: malla para flujo en vacio
-    if vacio:
-        mesh_vacio = openmc.RectilinearMesh()
-        mesh_vacio.x_grid = np.linspace(-L_x_vacio / 2, L_x_vacio / 2, 2)
-        mesh_vacio.y_grid = np.linspace(-L_y_vacio / 2, L_y_vacio / 2, 2)
-        mesh_vacio.z_grid = np.linspace(config.z0, L_z, 51)
-        mesh_filter_vacio = openmc.MeshFilter(mesh_vacio)
-        tally_flux_vacio = openmc.Tally(name="flux_vacio")
-        tally_flux_vacio.filters = [mesh_filter_vacio]
-        tally_flux_vacio.scores = ["flux"]
-
-    tallies = openmc.Tallies(
-        [tally_flux_total, tally_flux_vacio] if vacio else [tally_flux_total]
-    )
-
-    # Tally: superficie para espectro en 1m
-    def make_spectrum_tally(L_x, L_y, L_z, name):
-        mesh_total = openmc.RectilinearMesh()
-        mesh_total.x_grid = np.linspace(-L_x / 2, L_x / 2, 2)
-        mesh_total.y_grid = np.linspace(-L_y / 2, L_y / 2, 2)
-        mesh_total.z_grid = np.linspace(L_z - 1, L_z, 2)
-
-        tally_surface = openmc.Tally(name=name)
-        tally_surface.filters = [
-            openmc.MeshFilter(mesh_total),
-            openmc.EnergyFilter(np.logspace(-3, 7, 50)),
-        ]
-        tally_surface.scores = ["flux"]
-        return tally_surface
-
-    for Z in config.z_for_spectral_tally:
-        if config.z0 <= Z <= L_z:
-            tallies.append(make_spectrum_tally(L_x, L_y, Z, f"espectro_total_{Z}cm"))
-            if vacio:
-                tallies.append(
-                    make_spectrum_tally(
-                        L_x_vacio, L_y_vacio, Z, f"espectro_vacio_{Z}cm"
-                    )
-                )
-
-    tallies.export_to_xml()
-
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Limpieza de archivos previos y ejecución de la simulación
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    for file in glob.glob("statepoint.*.h5"):
-        os.remove(file)
-    if os.path.exists("summary.h5"):
-        os.remove("summary.h5")
-
-    openmc.run()
-
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Procesamiento de los resultados
-    # ---------------------------------------------------------------------------------------------------------------------------------------
-    # Mover archivos de salida según tipo de fuente
-    statepoint_files = glob.glob("statepoint.*.h5")
-
-    for file in statepoint_files:
-        shutil.move(file, config.statepoint_name)
-
-    if config.z_track is not None and config.trackfile_name is not None:
-        shutil.move("surface_source.h5", config.trackfile_name)
-
-    # ----------------------------------------------------------------------------------------------------------------------------------------
-    # Return to the previous directory if a folder was specified
-    # ----------------------------------------------------------------------------------------------------------------------------------------
-    if config.folder is not None:
-        os.chdir("..")
-
-
-def tally_flux_2_df(path, tally_name, factor_normalizacion=1):
-    sp = openmc.StatePoint(path)
-    tally = sp.get_tally(name=tally_name)
-    df = tally.get_pandas_dataframe()
-    df.columns = [
-        "x",
-        "y",
-        "z",
-        "nuclide",
-        "score",
-        "mean",
-        "std.dev.",
-    ]
-    volumen_celda = (
-        tally.filters[0]._mesh.total_volume / tally.filters[0]._mesh.num_mesh_cells
-    )
-    df["mean_norm"] = df["mean"] / volumen_celda * factor_normalizacion
-    df["std.dev._norm"] = df["std.dev."] / volumen_celda
-    z_min = tally.filters[0]._mesh.lower_left[2]
-    z_max = tally.filters[0]._mesh.upper_right[2]
-    z = np.linspace(z_min, z_max, tally.filters[0]._mesh.num_mesh_cells + 1)
-    z_midpoints = (z[:-1] + z[1:]) / 2
-    df["z_midpoints"] = z_midpoints
-    return df
 
 
 def get_tally_agua(df_total, df_vacio):
@@ -1454,155 +1279,3 @@ def get_tally_agua(df_total, df_vacio):
 
     return df_agua
 
-
-def plot_flux(df_flux_agua, df_flux_vacio, df_flux_total):
-    plt.figure(figsize=(10, 6))
-    plt.plot(
-        df_flux_agua["z_midpoints"],
-        df_flux_agua["mean_norm"],
-        label="Flujo en agua",
-        color="blue",
-    )
-    plt.plot(
-        df_flux_vacio["z_midpoints"],
-        df_flux_vacio["mean_norm"],
-        label="Flujo en vacío",
-        color="red",
-    )
-    plt.plot(
-        df_flux_total["z_midpoints"],
-        df_flux_total["mean_norm"],
-        label="Flujo total",
-        color="green",
-    )
-    plt.xlabel("z [cm]")
-    plt.ylabel("Flujo [cm$^{-2}$ s$^{-1}$]")
-    plt.title("Flujo en funcion de z")
-    plt.legend()
-    plt.grid()
-    plt.yscale("log")
-    plt.show()
-
-
-def tally_espectro_2_df(path, tally_name, factor_normalizacion=1):
-    sp = openmc.StatePoint(path)
-    tally = sp.get_tally(name=tally_name)
-    df = tally.get_pandas_dataframe()
-    df.columns = [
-        "x",
-        "y",
-        "z",
-        "E_min",
-        "E_max",
-        "nuclide",
-        "score",
-        "mean",
-        "std.dev.",
-    ]
-    volumen_celda = (
-        tally.filters[0]._mesh.total_volume / tally.filters[0]._mesh.num_mesh_cells
-    )
-    df["mean_norm"] = df["mean"] / volumen_celda * factor_normalizacion
-    df["std.dev._norm"] = df["std.dev."] / volumen_celda
-    df["E_mid"] = (df["E_min"] + df["E_max"]) / 2
-    return df
-
-
-def plot_espectro(df_espectro_agua, df_espectro_vacio, df_espectro_total, z):
-    plt.figure(figsize=(10, 6))
-    plt.plot(
-        df_espectro_agua["E_mid"],
-        df_espectro_agua["mean_norm"],
-        label=f"Espectro en agua {z} cm",
-        color="blue",
-    )
-    plt.plot(
-        df_espectro_total["E_mid"],
-        df_espectro_total["mean_norm"],
-        label=f"Espectro total {z} cm",
-        color="green",
-    )
-    plt.plot(
-        df_espectro_vacio["E_mid"],
-        df_espectro_vacio["mean_norm"],
-        label=f"Espectro en vacío {z} cm",
-        color="red",
-    )
-    plt.xlabel("E [eV]")
-    plt.ylabel("Flujo [cm$^{-2}$ s$^{-1}$ eV$^{-1}$]")
-    plt.title(f"Espectro en {z} cm")
-    plt.legend()
-    plt.grid()
-    plt.yscale("log")
-    plt.xscale("log")
-    plt.show()
-
-
-def generate_xml(sampling: SamplingConfig, simulation: SimulationConfig):
-    if not os.path.exists(sampling.folder):
-        os.makedirs(sampling.folder)
-    os.chdir(sampling.folder)
-
-    print(sampling.surface_track_path)
-
-    trackfile = kdh.SurfaceTrackProcessor(
-        sampling.surface_track_path, simulation.num_particles
-    )
-
-    trackfile.configure_binning(
-        columns=sampling.columns_order,
-        micro_bins=sampling.micro_bins,
-        macro_bins=sampling.macro_bins,
-        user_defined_macro_edges=sampling.user_defined_edges,
-    )
-
-    trackfile.plot_correlated_variables(filename="original.png")
-
-    trackfile.load_simulation_info(
-        geometria=simulation.geometria,
-        z0=simulation.z_track,
-        fuente_original=simulation.fuente,
-    )
-
-    print(
-        f"""
-    ╔══════════════════════════════════════╗
-    ║       Partículas Registradas         ║
-    ╠══════════════════════════════════════╣
-    ║ Total         : {len(trackfile.df):.1e}              ║
-    ║ mu = 1 (%)    : {trackfile.df.loc[trackfile.df['mu'] == 1].shape[0] / len(trackfile.df) * 100:.2f}%               ║
-    ╚══════════════════════════════════════╝
-    """
-    )
-
-    trackfile.save_to_xml(sampling.output_name)
-
-    # tree = trackfile.Tree
-
-    os.chdir("..")
-
-
-def resample(path, sampling: SamplingConfig):
-    output_path = os.path.join(path, sampling.folder, sampling.trackfile_resampled_name)
-    source_path = os.path.join(path, sampling.folder, sampling.output_name)
-    command = [
-        "kdtool",
-        "resample",
-        "-o",
-        output_path,
-        "-n",
-        str(sampling.num_resampling),
-        "-m",
-        "2",
-        source_path,
-    ]
-    # Ejecutar el comando usando subprocess
-    try:
-        subprocess.run(command, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error al ejecutar kdtool: {e}")
-        return
-    # !kdtool resample -o {output_path} -n {sampling.num_resampling} -m 2 {source_path}
-    kds.SurfaceSourceFile(output_path + ".mcpl.gz").save_source_file(
-        output_path + ".h5"
-    )
